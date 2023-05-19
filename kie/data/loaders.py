@@ -12,7 +12,7 @@ from transformers import AutoTokenizer
 from .schema import Sample
 from ..utils import read
 
-# Doesnt work with DataLoader
+
 @dataclass
 class TorchSample(dict):
     texts: torch.Tensor
@@ -26,7 +26,6 @@ class TorchSample(dict):
 
     def __getitem__(self, idx):
         return getattr(self, idx)
-
 
 
 def idendity(x):
@@ -63,7 +62,8 @@ def prepare_input(tokenizer, sample: Sample):
         # Extend other props to token length
         text_tokens = tokenizer.convert_tokens_to_ids(text_tokens)
         box_tokens = num_tokens * [box]
-        class_tokens = [classes.get(idx, -1) + 1] + (num_tokens - 1) * [0] # only the first
+        class_tokens = [classes.get(idx, -1) + 1] + \
+            (num_tokens - 1) * [0]  # only the first
         mask_tokens = num_tokens * [idx]
 
         # Append
@@ -91,11 +91,9 @@ def prepare_input(tokenizer, sample: Sample):
     for i, j in links:
         # last token of i
         (ti,) = np.where(token_masks == i)
-        print(ti)
         ti = ti[-1]
         # first token of j
         (tj,) = np.where(token_masks == i)
-        print(tj)
         tj = tj[0]
         token_links.append((ti, tj))
 
@@ -189,7 +187,8 @@ class CollateFunction:
         for sample in samples:
             n = len(sample["texts"])
             attention_masks = torch.zeros(n, n, dtype=torch.bool)
-            attention_masks = pad_to_shape(attention_masks, max_sizes["texts"], 1)
+            attention_masks = pad_to_shape(
+                attention_masks, max_sizes["texts"], 1)
             sample["attention_masks"] = attention_masks
         return batch
 
@@ -200,9 +199,11 @@ def make_dataloader(
     pad_token_id: int,
     dataloader_options: Dict = dict(),
 ):
-    dataset = KieDataset("./data/inv_aug_noref_noimg.json", transform=transform)
+    dataset = KieDataset(
+        "./data/inv_aug_noref_noimg.json", transform=transform)
     collate_fn = CollateFunction(pad_token_id)
-    dataloader = DataLoader(dataset, collate_fn=collate_fn, **dataloader_options)
+    dataloader = DataLoader(
+        dataset, collate_fn=collate_fn, **dataloader_options)
     return dataloader
 
 
@@ -214,5 +215,3 @@ if __name__ == "__main__":
         "./data/inv_aug_noref_noimg.json", transform=prepare_fn("vinai/phobert-base")
     )
     ic(next(iter(loader)))
-    #     ic(batch)
-    # dl = DataLoader(dataset, batch_size=2)

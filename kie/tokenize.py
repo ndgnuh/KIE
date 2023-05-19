@@ -31,7 +31,8 @@ def detokenize_texts(tokenizer, text_tokens, num_tokens):
     idx = 0
     decoded = []
     for num_token in num_tokens:
-        text = tokenizer.decode([text_tokens[idx + i] for i in range(num_token)])
+        text = tokenizer.decode([text_tokens[idx + i]
+                                 for i in range(num_token)])
         idx = idx + num_token
         decoded.append(text)
     return decoded
@@ -49,7 +50,8 @@ def detokenize_boxes(num_tokens, token_boxes):
     for num_token in num_tokens:
         decoded.append(token_boxes[idx])
         idx = idx + num_token
-    return decoded
+    decoded = np.stack(decoded, 0)
+    return decoded.tolist()
 
 
 def tokenize_classes(num_tokens, classes, ignore_class=0):
@@ -82,7 +84,8 @@ def tokenize_links(position_ids, links):
     return encoded
 
 
-def detokenize_links(position_ids, token_links):
+def detokenize_links(position_ids, relations):
+    token_links = zip(*np.where(relations))
     links = []
     for token_i, token_j in token_links:
         node_i = position_ids[token_i]
@@ -92,16 +95,23 @@ def detokenize_links(position_ids, token_links):
 
 
 def tokenize(tokenizer, sample: Sample) -> EncodedSample:
-    token_texts, position_ids, num_tokens = tokenize_texts(tokenizer, sample.texts)
+    token_texts, position_ids, num_tokens = tokenize_texts(
+        tokenizer, sample.texts)
     token_boxes = tokenize_boxes(num_tokens, sample.boxes)
     token_classes = tokenize_classes(num_tokens, sample.list_classes())
     token_links = tokenize_links(position_ids, sample.links)
+
+    # Convert relations to adj
+    n = len(token_texts)
+    relations = np.zeros((n, n)).astype(bool)
+    for i, j in token_links:
+        relations[i, j] = 1
 
     encoded = EncodedSample(
         texts=token_texts,
         boxes=token_boxes,
         classes=token_classes,
-        links=token_links,
+        relations=relations,
         num_tokens=num_tokens,
         position_ids=position_ids,
         image_width=sample.image_width,
@@ -111,19 +121,33 @@ def tokenize(tokenizer, sample: Sample) -> EncodedSample:
 
 
 def detokenize(tokenizer, encoded: EncodedSample) -> Sample:
-    texts = detokenize_texts(tokenizer, encoded["texts"], encoded["num_tokens"])
+    texts = detokenize_texts(
+        tokenizer,
+        encoded["texts"],
+        encoded["num_tokens"]
+    )
     boxes = detokenize_boxes(
-        num_tokens=encoded["num_tokens"], token_boxes=encoded["boxes"]
+        num_tokens=encoded["num_tokens"],
+        token_boxes=encoded["boxes"]
     )
     classes = detokenize_classes(
-        num_tokens=encoded["num_tokens"], token_classes=encoded["classes"]
+        num_tokens=encoded["num_tokens"],
+        token_classes=encoded["classes"]
     )
     links = detokenize_links(
-        position_ids=encoded["position_ids"], token_links=encoded["links"]
+        position_ids=encoded["position_ids"],
+        relations=encoded.relations
     )
-    return texts, boxes, classes, links
 
-
+    classes = {k: v - 1 for k, v in enumerate(classes) if v > 0}
+    return Sample(
+        texts=texts,
+        boxes=boxes,
+        classes=classes,
+        links=links,
+        image_width=encoded.image_width,
+        image_height=encoded.image_height,
+    )
 
 
 if __name__ == "__main__":

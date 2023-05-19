@@ -5,10 +5,6 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 
-Point = Tuple[float, float]
-Polygon = Tuple[Point, Point, Point, Point]
-
-
 def enforce_convert(cls):
     th = get_type_hints(cls)
 
@@ -22,7 +18,7 @@ def enforce_convert(cls):
 
 class Sample(BaseModel):
     texts: List[str]
-    boxes: List[Polygon]
+    boxes: List[List[List[int]]]
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     links: Set[Tuple[int, int]] = Field(default_factory=set)
@@ -41,7 +37,7 @@ class EncodedSample:
     texts: np.array
     boxes: np.array
     classes: np.array
-    links: np.array
+    relations: np.array
     num_tokens: np.array
     position_ids: np.array
     image_width: int
