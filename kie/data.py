@@ -1,18 +1,15 @@
 from functools import partial
-from itertools import product
 from typing import Callable, List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass
-from collections import defaultdict
 
 import numpy as np
 import torch
 from pydantic import BaseModel, Field
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import functional as F
-from torch import nn
 from transformers import AutoTokenizer
 
-from kie.fileio import read
+from .fileio import read
 
 
 Point = Tuple[float, float]
@@ -78,7 +75,7 @@ def prepare_input(tokenizer, sample: Sample):
     # Convert some to numpy and normalize
     #
     token_masks = np.array(token_masks)
-    token_boxes = np.array(token_boxes, dtype='float32')
+    token_boxes = np.array(token_boxes, dtype="float32")
     token_boxes[..., 0] = token_boxes[..., 0] / sample.image_width
     token_boxes[..., 1] = token_boxes[..., 1] / sample.image_height
 
@@ -99,13 +96,21 @@ def prepare_input(tokenizer, sample: Sample):
         tj = tj[0]
         token_links.append((ti, tj))
 
+    #
+    # Links to relations
+    #
+    num_tokens = len(token_texts)
+    token_relations = np.zeros((num_tokens, num_tokens), dtype='long')
+    for (ti, tj) in token_links:
+        token_relations[ti, tj] = 1
+
     # To torch land, drop the `token_` prefixes
     ret = dict(
         texts=torch.tensor(token_texts),
         boxes=torch.tensor(token_boxes),
         masks=torch.tensor(token_masks),
         classes=torch.tensor(token_classes),
-        links=torch.tensor(token_links),
+        relations=torch.tensor(token_relations),
     )
     return ret
 
@@ -150,7 +155,7 @@ def collate_fn(pad_config: Dict, samples: List):
         if x.shape == shape:
             return x
         padder = [[0, s2 - s1] for s1, s2 in zip(x.shape, shape)]
-        padder = tuple(sum(reversed(padder), [])) # Merge list
+        padder = tuple(sum(reversed(padder), []))  # Merge list
         padded = F.pad(x, padder, value=value)
         return padded
 
@@ -160,22 +165,32 @@ def collate_fn(pad_config: Dict, samples: List):
     batch = dict()
     for k, shape in max_sizes.items():
         pad_value = pad_config.get(k, None)
-        batch[k] = torch.stack([pad_to_shape(sample[k], shape, pad_value) for sample in samples], dim=0)
+        batch[k] = torch.stack(
+            [pad_to_shape(sample[k], shape, pad_value) for sample in samples], dim=0
+        )
     return batch
 
 
 def make_dataloader(root, transform, dataloader_options: Dict = dict()):
     dataset = KieDataset("./data/inv_aug_noref_noimg.json", transform=transform)
-    pad_config = dict(texts = tokenizer.pad_token_id)
-    dataloader = DataLoader(dataset, batch_size=4, collate_fn=partial(collate_fn, pad_config))
+    # TODO: do not hard code this
+    pad_config = dict(texts=1)
+    dataloader = DataLoader(
+        dataset, batch_size=4, collate_fn=partial(collate_fn, pad_config)
+    )
     return dataloader
+
+
+def prepare_fn(tokenizer):
+    transform = partial(prepare_input, tokenizer)
+    return transform
+
 
 if __name__ == "__main__":
     from icecream import ic
 
-    tokenizer = AutoTokenizer.from_pretrained("vinai/phobert-base")
-    transform = partial(prepare_input, tokenizer)
-    loader = make_dataloader("./data/inv_aug_noref_noimg.json", transform=transform)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    loader = make_dataloader("./data/inv_aug_noref_noimg.json", transform=prepare_fn("vinai/phobert-base"))
     ic(next(iter(loader)))
     #     ic(batch)
     # dl = DataLoader(dataset, batch_size=2)
