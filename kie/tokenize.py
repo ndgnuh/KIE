@@ -25,6 +25,8 @@ class EncodedSample:
     links: np.array
     num_tokens: np.array
     position_ids: np.array
+    image_width: int
+    image_height: int
 
     def __getitem__(self, idx):
         return getattr(self, idx)
@@ -131,6 +133,8 @@ def tokenize(tokenizer, sample):
         links=token_links,
         num_tokens=num_tokens,
         position_ids=position_ids,
+        image_width=sample.image_width,
+        image_height=sample.image_height,
     )
     return encoded
 
