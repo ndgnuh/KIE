@@ -33,6 +33,14 @@ class KieOutput:
     relation_logits: Tensor
     loss: Optional[Tensor] = None
 
+    def __post_init__(self):
+        class_probs = torch.softmax(self.class_logits, dim=-1)
+        self.class_scores, self.classes = torch.max(class_probs, dim=-1)
+
+        # Post process relation logits
+        relation_probs = torch.softmax(self.relation_logits, dim=-1)
+        self.relation_scores, self.relations = torch.max(relation_probs, dim=-1)
+
 
 class ClassificationHead(nn.Sequential):
     def __init__(self, config: KieConfig):

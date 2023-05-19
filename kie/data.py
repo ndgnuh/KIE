@@ -35,8 +35,8 @@ class TorchSample(dict):
 class Sample(BaseModel):
     texts: List[str]
     boxes: List[Polygon]
-    image_width: int
-    image_height: int
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     links: Set[Tuple[int, int]] = Field(default_factory=set)
     classes: Dict[int, int] = Field(default_factory=dict)
 
@@ -75,7 +75,7 @@ def prepare_input(tokenizer, sample: Sample):
         # Extend other props to token length
         text_tokens = tokenizer.convert_tokens_to_ids(text_tokens)
         box_tokens = num_tokens * [box]
-        class_tokens = num_tokens * [classes.get(idx, -1) + 1]
+        class_tokens = [classes.get(idx, -1) + 1] + (num_tokens - 1) * [0] # only the first
         mask_tokens = num_tokens * [idx]
 
         # Append
