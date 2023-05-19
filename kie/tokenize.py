@@ -1,8 +1,36 @@
 import numpy as np
-from kie.processing import post_process
-from kie.data import KieDataset, prepare_input, make_dataloader, InputProcessor
+from typing import get_type_hints
+from dataclasses import dataclass
+from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
-from kie.tokenize import Tokenizer
+
+
+def enforce_convert(cls):
+    th = get_type_hints(cls)
+
+    def __post_init__(self):
+        for k, f in th.items():
+            setattr(self, k, f(getattr(self, k)))
+
+    cls.__post_init__ = __post_init__
+    return cls
+
+
+@dataclass
+@enforce_convert
+class EncodedSample:
+    texts: np.array
+    boxes: np.array
+    classes: np.array
+    links: np.array
+    num_tokens: np.array
+    position_ids: np.array
+
+    def __getitem__(self, idx):
+        return getattr(self, idx)
+
+    def items(self, idx):
+        return vars(self).items()
 
 
 def mode(x, default):
@@ -96,13 +124,13 @@ def tokenize(tokenizer, sample):
     token_classes = tokenize_classes(num_tokens, sample.list_classes())
     token_links = tokenize_links(position_ids, sample.links)
 
-    encoded = dict(
+    encoded = EncodedSample(
         texts=token_texts,
         boxes=token_boxes,
         classes=token_classes,
         links=token_links,
         num_tokens=num_tokens,
-        position_ids=position_ids
+        position_ids=position_ids,
     )
     return encoded
 
@@ -130,7 +158,7 @@ def run_tests(tokenizer, sample):
     texts, boxes, classes, links = detokenize(tokenizer, encoded)
     assert len(encoded["texts"]) == len(encoded["boxes"])
     assert len(encoded["texts"]) == len(encoded["classes"])
-    assert eq(texts, sample.texts) or '<unk>' in ''.join(texts)
+    assert eq(texts, sample.texts) or "<unk>" in "".join(texts)
     assert eq(boxes, sample.boxes)
     assert eq(classes, sample.list_classes())
     assert set(links) == set(sample.links)
@@ -138,8 +166,20 @@ def run_tests(tokenizer, sample):
 
 if __name__ == "__main__":
     from tqdm import tqdm
-    tokenizer_ = AutoTokenizer.from_pretrained("vinai/phobert-base", local_files_only=True)
+    from kie.data import (
+        KieDataset,
+        prepare_input,
+        make_dataloader,
+        InputProcessor,
+        Sample,
+    )
+
+    tokenizer_ = AutoTokenizer.from_pretrained(
+        "vinai/phobert-base", local_files_only=True
+    )
     root = "data/inv_aug_noref_noimg.json"
     base_dataset = KieDataset(root)
     for sample in tqdm(base_dataset):
         run_tests(tokenizer_, sample)
+    encoded = tokenize(tokenizer_, sample)
+    # print(encoded)
