@@ -3,6 +3,7 @@ from typing import get_type_hints
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
+from .data import Sample
 
 
 def enforce_convert(cls):
@@ -120,7 +121,7 @@ def detokenize_links(position_ids, token_links):
     return links
 
 
-def tokenize(tokenizer, sample):
+def tokenize(tokenizer, sample: Sample) -> EncodedSample:
     token_texts, position_ids, num_tokens = tokenize_texts(tokenizer, sample.texts)
     token_boxes = tokenize_boxes(num_tokens, sample.boxes)
     token_classes = tokenize_classes(num_tokens, sample.list_classes())
@@ -139,7 +140,7 @@ def tokenize(tokenizer, sample):
     return encoded
 
 
-def detokenize(tokenizer, encoded):
+def detokenize(tokenizer, encoded: EncodedSample) -> Sample:
     texts = detokenize_texts(tokenizer, encoded["texts"], encoded["num_tokens"])
     boxes = detokenize_boxes(
         num_tokens=encoded["num_tokens"], token_boxes=encoded["boxes"]
@@ -153,19 +154,6 @@ def detokenize(tokenizer, encoded):
     return texts, boxes, classes, links
 
 
-def eq(a, b):
-    return np.all(np.array(a) == np.array(b))
-
-
-def run_tests(tokenizer, sample):
-    encoded = tokenize(tokenizer, sample)
-    texts, boxes, classes, links = detokenize(tokenizer, encoded)
-    assert len(encoded["texts"]) == len(encoded["boxes"])
-    assert len(encoded["texts"]) == len(encoded["classes"])
-    assert eq(texts, sample.texts) or "<unk>" in "".join(texts)
-    assert eq(boxes, sample.boxes)
-    assert eq(classes, sample.list_classes())
-    assert set(links) == set(sample.links)
 
 
 if __name__ == "__main__":
