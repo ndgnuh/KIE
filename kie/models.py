@@ -28,11 +28,13 @@ class KieConfig(BaseModel):
     num_classes: int
     head_dims: int
 
+
 @dataclass
 class KieOutput:
     class_logits: Tensor
     relation_logits: Tensor
     loss: Optional[Tensor] = None
+
 
 class ClassificationHead(nn.Sequential):
     def __init__(self, config: KieConfig):
@@ -59,6 +61,7 @@ class RelationTaggerHead(nn.Module):
         logits = torch.einsum("bnd,bmdc->bnmc", head, tail)
         return logits
 
+
 class KieLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -70,7 +73,7 @@ class KieLoss(nn.Module):
         pr_class_logits = pr_class_logits.transpose(1, -1)
         pr_relation_logits = pr_relation_logits.transpose(1, -1)
         c_loss = self.c_loss(pr_class_logits, gt_classes)
-        r_loss=  self.r_loss(pr_relation_logits, gt_relations)
+        r_loss = self.r_loss(pr_relation_logits, gt_relations)
         return c_loss + r_loss
 
 
@@ -102,7 +105,9 @@ class KieModel(nn.Module):
     def forward(self, batch):
         batch = adapt_input_layoutlm(batch)
         embeddings = self.embeddings(
-            input_ids=batch["texts"], bbox=batch["boxes"], position_ids=batch["masks"]
+            input_ids=batch["texts"],
+            bbox=batch["boxes"],
+            position_ids=batch["position_ids"],
         )
         hidden = self.encoder(embeddings).last_hidden_state
         hidden = self.project(hidden)
@@ -110,16 +115,15 @@ class KieModel(nn.Module):
         class_logits = self.classify(hidden)
         relation_logits = self.relation_tagger(hidden)
 
-        if 'classes' in batch:
-            loss = self.loss(class_logits, batch['classes'],
-                             relation_logits, batch['relations'])
+        if "classes" in batch:
+            loss = self.loss(
+                class_logits, batch["classes"], relation_logits, batch["relations"]
+            )
         else:
             loss = None
 
         return KieOutput(
-            class_logits = class_logits,
-            relation_logits = relation_logits,
-            loss = loss
+            class_logits=class_logits, relation_logits=relation_logits, loss=loss
         )
 
 

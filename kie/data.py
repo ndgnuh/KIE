@@ -17,15 +17,19 @@ Polygon = Tuple[Point, Point, Point, Point]
 
 
 # Doesnt work with DataLoader
-# @dataclass
-# class TorchSample(dict):
-#     texts: torch.Tensor
-#     boxes: torch.Tensor
-#     links: torch.Tensor
-#     classes: torch.Tensor
-#     masks: torch.Tensor
-#     def items(self):
-#         return vars(self).items()
+@dataclass
+class TorchSample(dict):
+    texts: torch.Tensor
+    boxes: torch.Tensor
+    position_ids: torch.Tensor
+    classes: torch.Tensor
+    relations: torch.Tensor
+
+    def items(self):
+        return vars(self).items()
+
+    def __getitem__(self, idx):
+        return getattr(self, idx)
 
 
 class Sample(BaseModel):
@@ -105,12 +109,12 @@ def prepare_input(tokenizer, sample: Sample):
         token_relations[ti, tj] = 1
 
     # To torch land, drop the `token_` prefixes
-    ret = dict(
+    ret = TorchSample(
         texts=torch.tensor(token_texts),
         boxes=torch.tensor(token_boxes),
-        masks=torch.tensor(token_masks),
         classes=torch.tensor(token_classes),
         relations=torch.tensor(token_relations),
+        position_ids=torch.tensor(token_masks),
     )
     return ret
 
