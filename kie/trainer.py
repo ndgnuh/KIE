@@ -9,7 +9,7 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from kie.models import KieConfig, KieModel, KieOutput
-from kie.data import make_dataloader, prepare_fn
+from kie.data import make_dataloader, InputProcessor
 
 
 def loop_over_loader(loader: Iterable, n: int) -> Generator:
@@ -56,7 +56,8 @@ class Trainer:
         # Load data
         _make_dataloader = partial(
             make_dataloader,
-            transform=prepare_fn(self.tokenizer),
+            transform=InputProcessor(self.tokenizer),
+            pad_token_id=self.tokenizer.pad_token_id,
             dataloader_options=train_config.dataloader,
         )
         self.train_loader = _make_dataloader(root=train_config.train_data)

@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, List, Dict, Optional, Tuple, Set
+from typing import Callable, List, Dict, Optional, Tuple, Set, Any
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,6 +43,14 @@ class Sample(BaseModel):
 
 def idendity(x):
     return x
+
+
+@dataclass
+class InputProcessor:
+    tokenizer: Any
+
+    def __call__(self, sample: Sample):
+        return prepare_input(self.tokenizer, sample)
 
 
 def prepare_input(tokenizer, sample: Sample):
@@ -104,8 +112,8 @@ def prepare_input(tokenizer, sample: Sample):
     # Links to relations
     #
     num_tokens = len(token_texts)
-    token_relations = np.zeros((num_tokens, num_tokens), dtype='long')
-    for (ti, tj) in token_links:
+    token_relations = np.zeros((num_tokens, num_tokens), dtype="long")
+    for ti, tj in token_links:
         token_relations[ti, tj] = 1
 
     # To torch land, drop the `token_` prefixes
@@ -137,64 +145,83 @@ class KieDataset(Dataset):
         return sample
 
 
-def collate_fn(pad_config: Dict, samples: List):
-    #
-    # Collect the max shapes of each tensor type
-    #
-    max_sizes = dict()
-    for sample in samples:
-        for k, v in sample.items():
-            shape = torch.tensor(v.shape)
-            if k not in max_sizes:
-                max_sizes[k] = shape
-            else:
-                max_sizes[k] = torch.maximum(max_sizes[k], shape)
-    max_sizes = {k: torch.Size(v) for k, v in max_sizes.items()}
+@dataclass
+class CollateFunction:
+    pad_token_id: int
+    pad_box_id: int = 0
 
-    #
-    # Pad to max sizes
-    #
-    def pad_to_shape(x, shape, value):
-        # padding_masks = torch.zeros_like(x)
-        if x.shape == shape:
-            return x
-        padder = [[0, s2 - s1] for s1, s2 in zip(x.shape, shape)]
-        padder = tuple(sum(reversed(padder), []))  # Merge list
-        padded = F.pad(x, padder, value=value)
-        return padded
+    def __call__(self, samples: List):
+        #
+        # Collect the max shapes of each tensor type
+        #
+        max_sizes = dict()
+        for sample in samples:
+            for k, v in sample.items():
+                shape = torch.tensor(v.shape)
+                if k not in max_sizes:
+                    max_sizes[k] = shape
+                else:
+                    max_sizes[k] = torch.maximum(max_sizes[k], shape)
+        max_sizes = {k: torch.Size(v) for k, v in max_sizes.items()}
 
-    #
-    # Stack to batch
-    #
-    batch = dict()
-    for k, shape in max_sizes.items():
-        pad_value = pad_config.get(k, None)
-        batch[k] = torch.stack(
-            [pad_to_shape(sample[k], shape, pad_value) for sample in samples], dim=0
+        #
+        # Pad to max sizes
+        #
+        def pad_to_shape(x, shape, value):
+            # padding_masks = torch.zeros_like(x)
+            if x.shape == shape:
+                return x
+            padder = [[0, s2 - s1] for s1, s2 in zip(x.shape, shape)]
+            padder = tuple(sum(reversed(padder), []))  # Merge list
+            padded = F.pad(x, padder, value=value)
+            return padded
+
+        #
+        # Stack to batch
+        #
+        batch = dict()
+        pad_config = dict(
+            texts=self.pad_token_id,
+            boxes=self.pad_box_id,  # [0, 0, 0, 0]
+            relations=0,
+            classes=0,
         )
-    return batch
+        for k, shape in max_sizes.items():
+            pad_value = pad_config.get(k, None)
+            batch[k] = torch.stack(
+                [pad_to_shape(sample[k], shape, pad_value) for sample in samples], dim=0
+            )
+
+        #
+        # Attention masking
+        #
+        for sample in samples:
+            n = len(sample["texts"])
+            attention_masks = torch.zeros(n, n, dtype=torch.bool)
+            attention_masks = pad_to_shape(attention_masks, max_sizes["texts"], 1)
+            sample["attention_masks"] = attention_masks
+        return batch
 
 
-def make_dataloader(root, transform, dataloader_options: Dict = dict()):
+def make_dataloader(
+    root: str,
+    transform: Callable,
+    pad_token_id: int,
+    dataloader_options: Dict = dict(),
+):
     dataset = KieDataset("./data/inv_aug_noref_noimg.json", transform=transform)
-    # TODO: do not hard code this
-    pad_config = dict(texts=1)
-    dataloader = DataLoader(
-        dataset, batch_size=4, collate_fn=partial(collate_fn, pad_config)
-    )
+    collate_fn = CollateFunction(pad_token_id)
+    dataloader = DataLoader(dataset, collate_fn=collate_fn, **dataloader_options)
     return dataloader
-
-
-def prepare_fn(tokenizer):
-    transform = partial(prepare_input, tokenizer)
-    return transform
 
 
 if __name__ == "__main__":
     from icecream import ic
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    loader = make_dataloader("./data/inv_aug_noref_noimg.json", transform=prepare_fn("vinai/phobert-base"))
+    loader = make_dataloader(
+        "./data/inv_aug_noref_noimg.json", transform=prepare_fn("vinai/phobert-base")
+    )
     ic(next(iter(loader)))
     #     ic(batch)
     # dl = DataLoader(dataset, batch_size=2)

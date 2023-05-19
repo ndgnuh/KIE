@@ -4,9 +4,7 @@ from dataclasses import dataclass
 import torch
 from pydantic import BaseModel
 from torch import nn, Tensor
-from transformers import AutoTokenizer, AutoModel
-
-from kie.data import make_dataloader, prepare_fn
+from transformers import AutoModel
 
 
 @torch.no_grad()
@@ -109,7 +107,8 @@ class KieModel(nn.Module):
             bbox=batch["boxes"],
             position_ids=batch["position_ids"],
         )
-        hidden = self.encoder(embeddings).last_hidden_state
+        hidden = self.encoder(embeddings, attention_mask=batch.get("attention_masks", None)).last_hidden_state
+
         hidden = self.project(hidden)
 
         class_logits = self.classify(hidden)
