@@ -2,3 +2,4 @@ torch
 lightning
 pydantic
 transformers
+numpy
