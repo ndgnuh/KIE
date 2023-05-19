@@ -6,7 +6,7 @@ from kie.data import (
     prepare_input,
     make_dataloader,
     InputProcessor,
-    Sample,
+    Sample
 )
 
 tokenizer_ = AutoTokenizer.from_pretrained("vinai/phobert-base", local_files_only=True)

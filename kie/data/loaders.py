@@ -9,12 +9,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn import functional as F
 from transformers import AutoTokenizer
 
-from .utils import read
-
-
-Point = Tuple[float, float]
-Polygon = Tuple[Point, Point, Point, Point]
-
+from .schema import Sample
+from ..utils import read
 
 # Doesnt work with DataLoader
 @dataclass
@@ -31,14 +27,6 @@ class TorchSample(dict):
     def __getitem__(self, idx):
         return getattr(self, idx)
 
-
-class Sample(BaseModel):
-    texts: List[str]
-    boxes: List[Polygon]
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
-    links: Set[Tuple[int, int]] = Field(default_factory=set)
-    classes: Dict[int, int] = Field(default_factory=dict)
 
 
 def idendity(x):
@@ -96,15 +84,18 @@ def prepare_input(tokenizer, sample: Sample):
     #
     token_links = []
     # Link between tokens of the same boxes
-    for ti, tj in zip(token_masks, token_masks[1:]):
-        token_links.append((ti, tj))
+    # for ti, tj in zip(token_masks, token_masks[1:]):
+    #     token_links.append((ti, tj))
+
     # Link assigned from node i -> node j
     for i, j in links:
         # last token of i
         (ti,) = np.where(token_masks == i)
+        print(ti)
         ti = ti[-1]
         # first token of j
         (tj,) = np.where(token_masks == i)
+        print(tj)
         tj = tj[0]
         token_links.append((ti, tj))
 

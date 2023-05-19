@@ -10,3 +10,4 @@ class Compose:
         for function in self.callables:
             x = function(x, *a, **kwargs)
         return x
+

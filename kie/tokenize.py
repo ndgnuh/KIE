@@ -3,37 +3,7 @@ from typing import get_type_hints
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from transformers import AutoTokenizer
-from .data import Sample
-
-
-def enforce_convert(cls):
-    th = get_type_hints(cls)
-
-    def __post_init__(self):
-        for k, f in th.items():
-            setattr(self, k, f(getattr(self, k)))
-
-    cls.__post_init__ = __post_init__
-    return cls
-
-
-@dataclass
-@enforce_convert
-class EncodedSample:
-    texts: np.array
-    boxes: np.array
-    classes: np.array
-    links: np.array
-    num_tokens: np.array
-    position_ids: np.array
-    image_width: int
-    image_height: int
-
-    def __getitem__(self, idx):
-        return getattr(self, idx)
-
-    def items(self, idx):
-        return vars(self).items()
+from .data import Sample, EncodedSample
 
 
 def mode(x, default):
