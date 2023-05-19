@@ -9,7 +9,8 @@ from kie.data import (
     Sample
 )
 
-tokenizer_ = AutoTokenizer.from_pretrained("vinai/phobert-base", local_files_only=True)
+tokenizer_ = AutoTokenizer.from_pretrained(
+    "vinai/phobert-base", local_files_only=True)
 root = "data/inv_aug_noref_noimg.json"
 
 
@@ -19,15 +20,21 @@ def test_tokenization():
     def eq(a, b):
         return np.all(np.array(a) == np.array(b))
 
+    def dict_eq(a, b):
+        if a.keys() != b.keys():
+            return False
+        return all(a[k] == b[k] for k in a)
+
     def run_tests(tokenizer, sample: Sample):
         encoded = tokenize(tokenizer, sample)
-        texts, boxes, classes, links = detokenize(tokenizer, encoded)
+        decoded = detokenize(tokenizer, encoded)
         assert len(encoded["texts"]) == len(encoded["boxes"])
         assert len(encoded["texts"]) == len(encoded["classes"])
-        assert eq(texts, sample.texts) or "<unk>" in "".join(texts)
-        assert eq(boxes, sample.boxes)
-        assert eq(classes, sample.list_classes())
-        assert set(links) == set(sample.links)
+        assert eq(decoded.texts, sample.texts) or \
+            "<unk>" in "".join(decoded.texts)
+        assert eq(decoded.boxes, sample.boxes)
+        assert dict_eq(decoded.classes, sample.classes)
+        assert set(decoded.links) == set(sample.links)
 
     base_dataset = KieDataset(root)
     for sample in tqdm(base_dataset):

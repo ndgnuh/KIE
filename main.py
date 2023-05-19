@@ -19,16 +19,17 @@ if __name__ == "__main__":
         total_steps=1000,
         validate_every=100,
         train_data="data/inv_aug_noref_noimg.json",
-        validate_data="data/inv_aug_noref_noimg.json",
+        validate_data="data/val.json",
         lr=8e-5,
     )
     trainer = Trainer(train_config, model_config)
-    model = trainer.model.eval()
-    model.load_state_dict(torch.load("model.pt"))
+    trainer.train()
+    # model = trainer.model.eval()
+    # model.load_state_dict(torch.load("model.pt"))
 
-    batch = next(iter(trainer.train_loader))
-    with torch.no_grad():
-        output = model(batch)
-        ic(output.loss)
-        ic(output.class_logits)
-        ic(output.relation_logits)
+    # batch = next(iter(trainer.train_loader))
+    # with torch.no_grad():
+    #     output = model(batch)
+    #     ic(output.loss)
+    #     ic(output.class_logits)
+    #     ic(output.relation_logits)

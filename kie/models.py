@@ -5,17 +5,24 @@ import torch
 from pydantic import BaseModel
 from torch import nn, Tensor
 from transformers import AutoModel
+from .utils import BatchDict, ez_get_item
 
 
 @torch.no_grad()
 def adapt_input_layoutlm(batch):
     # B N 4 2
-    boxes = batch["boxes"]
+    boxes = batch["boxes"] * 1.0
+
+    # Normalize
+    boxes[..., 0] = boxes[..., 0] * 1000 / batch['image_width']
+    boxes[..., 1] = boxes[..., 1] * 1000 / batch['image_height']
+
+    # Convert to xyxy
     maxs = boxes.max(dim=-2).values
     mins = boxes.min(dim=-2).values
     # X min Y min X max Y max
     boxes = torch.cat([mins, maxs], dim=-1)
-    boxes = torch.round(boxes * 1000).type(torch.long)
+    boxes = torch.round(boxes).type(torch.long)
     batch["boxes"] = boxes
     return batch
 
@@ -27,6 +34,7 @@ class KieConfig(BaseModel):
     head_dims: int
 
 
+@ez_get_item
 @dataclass
 class KieOutput:
     class_logits: Tensor
@@ -39,7 +47,11 @@ class KieOutput:
 
         # Post process relation logits
         relation_probs = torch.softmax(self.relation_logits, dim=-1)
-        self.relation_scores, self.relations = torch.max(relation_probs, dim=-1)
+        self.relation_scores, self.relations = torch.max(
+            relation_probs, dim=-1)
+
+    def __getitem__(self, idx):
+        return getattr(self, idx)
 
 
 class ClassificationHead(nn.Sequential):
@@ -95,7 +107,8 @@ class KieModel(nn.Module):
         #
         # neck
         #
-        self.project = nn.Sequential(nn.Linear(768, config.head_dims), nn.Tanh())
+        self.project = nn.Sequential(
+            nn.Linear(768, config.head_dims), nn.Tanh())
 
         #
         # Prediction heads
@@ -115,7 +128,8 @@ class KieModel(nn.Module):
             bbox=batch["boxes"],
             position_ids=batch["position_ids"],
         )
-        hidden = self.encoder(embeddings, attention_mask=batch.get("attention_masks", None)).last_hidden_state
+        hidden = self.encoder(embeddings, attention_mask=batch.get(
+            "attention_masks", None)).last_hidden_state
 
         hidden = self.project(hidden)
 
@@ -140,7 +154,8 @@ if __name__ == "__main__":
     install()
     tokenizer_name = "vinai/phobert-base"
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    dataloader = make_dataloader("data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
+    dataloader = make_dataloader(
+        "data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
     config = KieConfig(
         backbone_name="microsoft/layoutlm-base-cased",
         word_embedding_name=tokenizer_name,

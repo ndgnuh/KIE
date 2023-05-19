@@ -103,7 +103,7 @@ def tokenize(tokenizer, sample: Sample) -> EncodedSample:
 
     # Convert relations to adj
     n = len(token_texts)
-    relations = np.zeros((n, n)).astype(bool)
+    relations = np.zeros((n, n)).astype(int)
     for i, j in token_links:
         relations[i, j] = 1
 

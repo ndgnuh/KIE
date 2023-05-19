@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Iterable, Generator
 from functools import partial
 
+import random
 import torch
 from lightning import Fabric
 from torch import optim
@@ -9,7 +10,8 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from kie.models import KieConfig, KieModel, KieOutput
-from kie.data import make_dataloader, InputProcessor
+from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
+from kie import tokenize
 
 
 def loop_over_loader(loader: Iterable, n: int) -> Generator:
@@ -50,28 +52,35 @@ class Trainer:
     def __init__(self, train_config: TrainConfig, model_config: KieConfig):
         # Initialize model
         self.model = KieModel(model_config)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_config.word_embedding_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_config.word_embedding_name)
         self.fabric = Fabric(accelerator="auto")
 
         # Load data
+        def transform(sample: Sample):
+            encoded: EncodedSample = tokenize.tokenize(self.tokenizer, sample)
+            return {k: torch.tensor(v) for k, v in encoded.items()}
         _make_dataloader = partial(
             make_dataloader,
-            transform=InputProcessor(self.tokenizer),
+            transform=transform,
             pad_token_id=self.tokenizer.pad_token_id,
             dataloader_options=train_config.dataloader,
         )
         self.train_loader = _make_dataloader(root=train_config.train_data)
-        self.validate_loader = _make_dataloader(root=train_config.validate_data)
+        self.validate_loader = _make_dataloader(
+            root=train_config.validate_data)
 
         # Check num class constrain
         # Model have +1 class for background (no class)
         assert len(self.train_loader.dataset.classes) == len(
             self.validate_loader.dataset.classes
         )
-        assert len(self.train_loader.dataset.classes) == model_config.num_classes - 1
+        assert len(
+            self.train_loader.dataset.classes) == model_config.num_classes - 1
 
         # Optimizer
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=train_config.lr)
+        self.optimizer = optim.AdamW(
+            self.model.parameters(), lr=train_config.lr)
         self.lr_scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer,
                                                           max_lr=train_config.lr,
                                                           pct_start=0.01,
@@ -90,7 +99,6 @@ class Trainer:
         return {
             "current_step": self.current_step
         }
-
 
     def train(self):
         total_steps = self.train_config.total_steps
@@ -113,7 +121,8 @@ class Trainer:
             fabric.backward(output.loss)
             optimizer.step()
             lr_scheduler.step()
-            pbar.set_description(f"#{step}/{total_steps} loss: {output.loss.item():.4e}")
+            pbar.set_description(
+                f"#{step}/{total_steps} loss: {output.loss.item():.4e}")
             if step % print_every == 0:
                 tqdm.write(f"LR: {lr_scheduler.get_last_lr()[0]:.2e}")
 
@@ -129,16 +138,45 @@ class Trainer:
         # Save one last time
         self.save_model()
 
-    @torch.no_grad()
+    @ torch.no_grad()
     def validate(self):
         model = self.fabric.setup(self.model)
         model = model.eval()
         loader = self.fabric.setup_dataloaders(self.validate_loader)
 
+        def dict_get_index(d, i):
+            return {k: v[i] for k, v in d.items()}
+
+        def post_process(batch, output) -> EncodedSample:
+            return EncodedSample(
+                texts=batch['texts'].cpu().numpy(),
+                boxes=batch['boxes'].cpu().numpy(),
+                classes=(output or batch)['classes'].cpu().numpy(),
+                relations=(output or batch)['relations'].cpu().numpy(),
+                position_ids=batch['position_ids'].cpu().numpy(),
+                num_tokens=batch['num_tokens'].cpu().numpy(),
+                image_width=batch['image_width'].cpu().numpy(),
+                image_height=batch['image_height'].cpu().numpy()
+            )
+
         losses = []
+        final_outputs = []
         for batch in tqdm(loader, "validating"):
-            output: KieOutput = model(batch)
-            losses.append(output.loss.item())
+            batch_size = batch['texts'].shape[0]
+            outputs: KieOutput = model(batch)
+            for i in range(batch_size):
+                sample = dict_get_index(batch, i)
+                pr_encoded = post_process(sample, outputs[i])
+                gt_encoded = post_process(sample, None)
+                gt = tokenize.detokenize(self.tokenizer, gt_encoded)
+                pr = tokenize.detokenize(self.tokenizer, pr_encoded)
+                final_outputs.append((pr, gt))
+            losses.append(outputs.loss.item())
+
+        for pr, gt in random.choices(final_outputs, k=3):
+            print('PR', pr)
+            print('PR', gt)
+            print('-------------------')
 
         loss = sum(losses) / len(losses)
         tqdm.write(f"Validation loss: {loss}")
@@ -149,6 +187,7 @@ class Trainer:
             self.model.state_dict(),
             self.model_save_path,
         )
+
 
 if __name__ == "__main__":
     from icecream import install

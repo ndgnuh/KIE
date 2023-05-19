@@ -18,7 +18,7 @@ def enforce_convert(cls):
 
 class Sample(BaseModel):
     texts: List[str]
-    boxes: List[List[List[int]]]
+    boxes: List
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     links: Set[Tuple[int, int]] = Field(default_factory=set)
@@ -40,11 +40,11 @@ class EncodedSample:
     relations: np.array
     num_tokens: np.array
     position_ids: np.array
-    image_width: int
-    image_height: int
+    image_width: np.array
+    image_height: np.array
 
     def __getitem__(self, idx):
         return getattr(self, idx)
 
-    def items(self, idx):
+    def items(self):
         return vars(self).items()
