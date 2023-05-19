@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn import functional as F
 from transformers import AutoTokenizer
 
-from .fileio import read
+from .utils import read
 
 
 Point = Tuple[float, float]
