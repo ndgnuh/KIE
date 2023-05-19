@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from kie.models import KieConfig, KieModel, KieOutput
 from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
+from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import tokenize
 
 
@@ -173,10 +174,11 @@ class Trainer:
                 final_outputs.append((pr, gt))
             losses.append(outputs.loss.item())
 
+        classes = loader.dataset.classes
         for pr, gt in random.choices(final_outputs, k=3):
-            print('PR', pr)
-            print('PR', gt)
-            print('-------------------')
+            tqdm.write('PR:\t' + str(prettify_sample(pr, classes)))
+            tqdm.write('GT:\t' + str(prettify_sample(gt, classes)))
+            tqdm.write('-------------------')
 
         loss = sum(losses) / len(losses)
         tqdm.write(f"Validation loss: {loss}")
