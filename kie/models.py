@@ -6,8 +6,9 @@ from torch.nn import functional as F
 from pydantic import BaseModel
 from torch import nn, Tensor
 from transformers import AutoModel
-from .utils import BatchDict, ez_get_item
+from .utils import BatchNamespace, dataclass
 from .bros import BrosModel, BrosConfig
+from .graph_utils import path_graph
 
 
 @torch.no_grad()
@@ -15,13 +16,8 @@ def adapt_input_bros(batch):
     # B N 4 2
     boxes = batch["boxes"] * 1.0
 
-    # Normalize
-    boxes[..., 0] = boxes[..., 0] / batch['image_width']
-    boxes[..., 1] = boxes[..., 1] / batch['image_height']
-
     # Convert to xy8
     boxes = boxes.flatten(-2).float()
-    batch["boxes"] = boxes
     return dict(
         input_ids=batch["texts"],
         bbox=boxes,
@@ -54,16 +50,20 @@ def adapt_input_layoutlm(batch):
 class KieConfig(BaseModel):
     backbone_name: str
     word_embedding_name: str
-    num_classes: int
     head_dims: int
+    num_classes: int
+    classes: List[str]
 
 
-@ez_get_item
 @dataclass
-class KieOutput:
+class KieOutput(BatchNamespace):
     class_logits: Tensor
     relation_logits: Tensor
     loss: Optional[Tensor] = None
+
+    @classmethod
+    def excluded(cls):
+        return ["loss"]
 
     def __post_init__(self):
         class_probs = torch.softmax(self.class_logits, dim=-1)
@@ -71,12 +71,16 @@ class KieOutput:
 
         # Post process relation logits
         relation_probs = torch.softmax(self.relation_logits, dim=-1)
-        self.relations_scores = relation_probs[..., 1] - relation_probs[..., 0]
-        self.relations = torch.stack([
-            self.nms(score) for score in self.relations_scores
-        ])
-        # self.relation_scores, self.relations = torch.max(
-        #     relation_probs, dim=-1)
+        scores, paths = relation_probs.max(dim=-1)
+        # ic(paths.shape)
+        # self.relations = torch.vmap(path_graph.decode_paths)(paths)
+        self.relation_scores, self.relations = torch.max(
+            relation_probs, dim=-1)
+
+    # def get_relations(self):
+    #     return torch.stack([
+    #         self.nms(score) for score in self.relations_scores
+    #     ])
 
     @torch.no_grad()
     def nms(self, scores, threshold=0):
@@ -101,14 +105,58 @@ class KieOutput:
                 break
         return keeps
 
-    def __getitem__(self, idx):
-        return getattr(self, idx)
-
 
 class ClassificationHead(nn.Sequential):
     def __init__(self, config: KieConfig):
         super().__init__()
         self.classify = nn.Linear(config.head_dims, config.num_classes)
+
+
+class CPRelationTaggerHead(nn.Module):
+    def __init__(self, config: KieConfig):
+        super().__init__()
+        self.head = nn.Linear(config.head_dims, config.head_dims)
+        self.tail = nn.Linear(config.head_dims, config.head_dims)
+        self.predict = nn.Conv2d(1, 2, 1)
+
+    def forward(self, hidden):
+        # b n d -> b n n d
+        head = self.head(hidden)
+        tail = self.tail(hidden)
+        scores = torch.matmul(head, tail.transpose(-1, -2))
+
+        pool1, _ = scores.max(dim=1, keepdim=True)
+        pool2, _ = scores.max(dim=2, keepdim=True)
+        scores = pool1 + pool2
+
+        # b n n -> b 1 n nn
+        scores = scores.unsqueeze(1)
+        scores = self.predict(scores)
+        # b d n n -> b n n d
+        scores = scores.permute((0, 2, 3, 1))
+        return scores
+
+
+class PathRelationTaggerHead(nn.Module):
+    def __init__(self, config: KieConfig):
+        super().__init__()
+        head_dims = config.head_dims
+        self.none = nn.Parameter(torch.zeros(1, 1, head_dims))
+        self.head = nn.Linear(head_dims, head_dims)
+        self.tail = nn.Linear(head_dims, head_dims)
+
+    def forward(self, hidden):
+        # Expand to batch
+        none = self.none.repeat([hidden.shape[0], 1, 1])
+        hidden = torch.cat([none, hidden], dim=1)
+
+        # N+1 M+1 D
+        head = torch.tanh(self.head(hidden))
+        tail = torch.tanh(self.tail(hidden))
+
+        # N+1 M+1
+        relations_logits = torch.matmul(head, tail.transpose(-1, -2))
+        return relations_logits
 
 
 class RelationTaggerHead(nn.Module):
@@ -135,40 +183,8 @@ class KieLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.c_loss = nn.CrossEntropyLoss()
-        self.r_loss = nn.CrossEntropyLoss()
-        self.node_type = nn.Linear(768, 4)
-
-    def extra_target(self, gt_relations):
-        n = gt_relations.shape[-1]
-        all_node_types = []
-        for _gt in gt_relations:
-            # n * 2
-            r, c = torch.where(_gt)
-            incoming = [False] * n
-            outgoing = [False] * n
-            for (i, j) in zip(r, c):
-                incoming[i] = True
-                outgoing[j] = True
-
-            values = {
-                (True, True): 3,
-                (True, False): 2,
-                (False, True): 1,
-                (False, False): 0,
-            }
-            node_types = torch.tensor(
-                [values[(incoming[i], outgoing[i])] for i in range(n)],
-                device=gt_relations.device)
-
-            all_node_types.append(node_types)
-        all_node_types = torch.stack(all_node_types, 0)
-        return all_node_types
-
-    def extra_loss(self, hidden, gt_relations):
-        node_types = self.node_type(hidden)
-        node_types = node_types.transpose(1, -1)
-        gt_node_types = self.extra_target(gt_relations)
-        return self.c_loss(node_types, gt_node_types)
+        # Ignore nega links completely
+        self.r_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.1, 1]))
 
     def forward(self, pr_class_logits, gt_classes, pr_relation_logits, gt_relations):
         # Class to dim 1
@@ -176,14 +192,8 @@ class KieLoss(nn.Module):
         pr_relation_logits = pr_relation_logits.transpose(1, -1)
 
         c_loss = self.c_loss(pr_class_logits, gt_classes)
-
-        # positive = (gt_relations == 1)
-        # negative = (gt_relations == 0)
-        # num_positive = torch.count_nonzero(positive)
-        # num_negative = torch.minimum(num_positive,
-        # gt_relations = F.one_hot(gt_relations, 2) * 1.0
-        # pr_relation_logits = torch.sigmoid(pr_relation_logits)
-        # r_loss = self.r_loss(pr_relation_logits, gt_relations)
+        # gt_paths = path_graph.encode_adj(gt_relations)
+        # ic(pr_paths.shape, gt_paths.shape, pr_paths.max())
         r_loss = self.r_loss(pr_relation_logits, gt_relations)
         return c_loss + r_loss
 
@@ -253,7 +263,7 @@ class KieModel(nn.Module):
 
         if "classes" in batch:
             loss = self.loss(
-                class_logits, batch["classes"], relation_logits, batch["relations"]
+                class_logits, batch.classes, relation_logits, batch.adj
             )
             # loss = loss + self.loss.extra_loss(hidden, batch["relations"])
         else:

@@ -196,14 +196,11 @@ class CollateFunction:
 def make_dataloader(
     root: str,
     transform: Callable,
-    pad_token_id: int,
     dataloader_options: Dict = dict(),
 ):
     dataset = KieDataset(
         "./data/inv_aug_noref_noimg.json", transform=transform)
-    collate_fn = CollateFunction(pad_token_id)
-    dataloader = DataLoader(
-        dataset, collate_fn=collate_fn, **dataloader_options)
+    dataloader = DataLoader(dataset, **dataloader_options)
     return dataloader
 
 

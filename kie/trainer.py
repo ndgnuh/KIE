@@ -13,7 +13,7 @@ from tqdm import tqdm
 from kie.models import KieConfig, KieModel, KieOutput
 from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
-from kie import tokenize
+from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
 
 
@@ -82,15 +82,18 @@ class Trainer:
         self.fabric = Fabric(accelerator="auto")
 
         # Load data
-        def transform(sample: Sample):
-            sample = augment(sample)
-            encoded: EncodedSample = tokenize.tokenize(self.tokenizer, sample)
-            return {k: torch.tensor(v) for k, v in encoded.items()}
+        self.processor = processor_v2.Processor(
+            tokenizer=self.tokenizer,
+            classes=model_config.classes
+        )
+
         _make_dataloader = partial(
             make_dataloader,
-            transform=transform,
-            pad_token_id=self.tokenizer.pad_token_id,
-            dataloader_options=train_config.dataloader,
+            transform=self.processor.encode,
+            dataloader_options=dict(
+                **train_config.dataloader,
+                collate_fn=self.processor.collate_fn(),
+            ),
         )
         self.train_loader = _make_dataloader(root=train_config.train_data)
         self.validate_loader = _make_dataloader(
@@ -101,8 +104,8 @@ class Trainer:
         assert len(self.train_loader.dataset.classes) == len(
             self.validate_loader.dataset.classes
         )
-        assert len(
-            self.train_loader.dataset.classes) == model_config.num_classes - 1
+        assert len(self.train_loader.dataset.classes)\
+            == (model_config.num_classes - self.processor.num_special_tokens)
 
         # Optimizer
         self.optimizer = optim.AdamW(
@@ -173,17 +176,17 @@ class Trainer:
         def dict_get_index(d, i):
             return {k: v[i] for k, v in d.items()}
 
-        def post_process(batch, output) -> EncodedSample:
-            return EncodedSample(
-                texts=batch['texts'].cpu().numpy(),
-                boxes=batch['boxes'].cpu().numpy(),
-                classes=(output or batch)['classes'].cpu().numpy(),
-                relations=(output or batch)['relations'].cpu().numpy(),
-                position_ids=batch['position_ids'].cpu().numpy(),
-                num_tokens=batch['num_tokens'].cpu().numpy(),
-                image_width=batch['image_width'].cpu().numpy(),
-                image_height=batch['image_height'].cpu().numpy()
-            )
+        # def post_process(batch, output) -> EncodedSample:
+        #     return EncodedSample(
+        #         texts=batch['texts'].cpu().numpy(),
+        #         boxes=batch['boxes'].cpu().numpy(),
+        #         classes=(output or batch)['classes'].cpu().numpy(),
+        #         relations=(output or batch)['relations'].cpu().numpy(),
+        #         num_tokens=batch['num_tokens'].cpu().numpy(),
+        #         image_width=batch['image_width'].cpu().numpy(),
+        #         image_height=batch['image_height'].cpu().numpy()
+        #     )
+        post_process = self.processor.decode
 
         losses = []
         final_outputs = []
@@ -191,16 +194,23 @@ class Trainer:
             batch_size = batch['texts'].shape[0]
             outputs: KieOutput = model(batch)
             for i in range(batch_size):
-                sample = dict_get_index(batch, i)
-                pr_encoded = post_process(sample, outputs[i])
-                gt_encoded = post_process(sample, None)
-                gt = tokenize.detokenize(self.tokenizer, gt_encoded)
-                pr = tokenize.detokenize(self.tokenizer, pr_encoded)
+                # Extract
+                sample = batch[i].to_numpy()
+                output = outputs[i]
+
+                # Postprocess GT
+                gt = post_process(sample)
+
+                # Postprocess PR
+                sample.classes = output.classes.cpu().numpy()
+                sample.adj = output.relations.cpu().numpy()
+                pr = post_process(sample)
+
                 final_outputs.append((pr, gt))
             losses.append(outputs.loss.item())
 
         classes = loader.dataset.classes
-        for pr, gt in random.choices(final_outputs, k=3):
+        for pr, gt in random.choices(final_outputs, k=1):
             tqdm.write('PR:\t' + str(prettify_sample(pr, classes)))
             tqdm.write("+" * 3)
             tqdm.write('GT:\t' + str(prettify_sample(gt, classes)))

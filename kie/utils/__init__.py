@@ -1,28 +1,46 @@
 from .fileio import read
 from .functional import Compose
+from dataclasses import dataclass
+from typing import *
 
 
-class BatchDict(dict):
-    def __post_init__(self):
-        self.__dict__ = self
+@dataclass
+class BatchNamespace:
+    def __getitem__(self, i):
+        if isinstance(i, str):
+            return getattr(self, i)
 
-    def __getitem__(self, idx: int):
-        if isinstance(idx, str):
-            return dict.__getitem__(self, idx)
-        return {idx: v[k] for k, v in self.items()}
+        T = type(self)
+        results = {}
+        for k, _ in get_type_hints(self).items():
+            v = self[k]
+            if not hasattr(v, "__getitem__"):
+                continue
+            if k in T.excluded():
+                results[k] = v
+            else:
+                results[k] = v[i]
+        return T(**results)
 
+    @classmethod
+    def excluded(cls):
+        return []
 
-def ez_get_item(cls):
-    def __getitem__(self, idx: int):
-        if isinstance(idx, str):
-            return setattr(self, idx)
-        result = {}
-        for k, v in vars(self).items():
-            try:
-                result[k] = v[idx]
-            except IndexError:
-                result[k] = v
-        return result
+    @property
+    def batch_size(self):
+        return len(next(iter(vars(self).values()))[0])
 
-    cls.__getitem__ = __getitem__
-    return cls
+    def __iter__(self):
+        for i in range(self.batch_size):
+            yield self[i]
+
+    # Dict-ish interface
+    def items(self):
+        return vars(self).items()
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+    def __contains__(self, key):
+        # Loosely
+        return hasattr(self, key)

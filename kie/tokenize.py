@@ -86,7 +86,7 @@ def detokenize_boxes(num_tokens, token_boxes):
 
 def tokenize_classes(num_tokens, classes, ignore_class=0):
     token_classes = [
-        [cls] + [ignore_class] * (num_tokens[i] - 1) for (i, cls) in enumerate(classes)
+        [cls] + [cls] * (num_tokens[i] - 1) for (i, cls) in enumerate(classes)
     ]
     token_classes = [cls for nested in token_classes for cls in nested]
     return token_classes

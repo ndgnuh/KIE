@@ -6,6 +6,7 @@ from functools import cached_property
 import numpy as np
 from scipy.stats import mode
 
+from .utils import BatchNamespace
 from kie.data import KieDataset, Sample
 
 
@@ -41,7 +42,7 @@ def autopad_dict(tensor_dicts, value_dict):
 
 
 @dataclass
-class Encoded:
+class Encoded(BatchNamespace):
     texts: np.ndarray
     boxes: np.ndarray
     classes: np.ndarray
@@ -52,8 +53,8 @@ class Encoded:
         import torch
         return Encoded(**{k: torch.tensor(v) for k, v in vars(self).items()})
 
-    def __getitem__(self, idx):
-        return getattr(self, idx)
+    def to_numpy(self):
+        return Encoded(**{k: v.cpu().detach().numpy() for k, v in vars(self).items()})
 
 
 @dataclass
@@ -71,7 +72,8 @@ class CollateFn:
             token2item=[max(sample.token2item) + 1 for sample in samples]
         )
         samples = autopad_dict(samples, values)
-        samples = {k: torch.stack(v) for k, v in samples.items()}
+        samples = Encoded(**{k: torch.stack(v)
+                             for k, v in samples.items()})
         return samples
 
 
@@ -89,6 +91,7 @@ class Processor:
         return len(self.special_classes)
 
     def encode(self, sample: Sample) -> Encoded:
+        tokenizer = self.tokenizer
         n = len(sample.texts)
         texts = []
         boxes = []
@@ -160,6 +163,7 @@ class Processor:
         )
 
     def decode(self, encoded: Encoded) -> Sample:
+        tokenizer = self.tokenizer
         token2item = encoded.token2item
         texts = []
         boxes = []
