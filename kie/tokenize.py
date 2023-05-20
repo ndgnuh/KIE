@@ -104,8 +104,15 @@ def detokenize_classes(num_tokens, token_classes, ignore_class=0):
 
 
 def tokenize_links(position_ids, links):
+    position_ids = np.array(position_ids)
     n = len(position_ids)
     encoded = []
+    # intra links
+    for mask in np.unique(position_ids):
+        token_ids = np.where(position_ids == mask)
+        encoded.extend([(i, j) for i, j in zip(token_ids, token_ids[1:])])
+
+    # inter links
     for node_i, node_j in links:
         token_i = [i for i in range(n) if position_ids[i] == node_i]
         token_j = [i for i in range(n) if position_ids[i] == node_j]
