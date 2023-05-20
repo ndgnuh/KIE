@@ -6,6 +6,10 @@ from transformers import AutoTokenizer
 from .data import Sample, EncodedSample
 
 
+def inter(a, b, pct):
+    return a * pct + (1 - pct) * b
+
+
 def mode(x, default):
     if len(x) == 0:
         return default
@@ -44,11 +48,37 @@ def tokenize_boxes(num_tokens, boxes):
     return token_boxes
 
 
+def tokenize_boxes(num_tokens, boxes):
+    encoded = []
+
+    for (n, box) in zip(num_tokens, boxes):
+        x0, y0 = box[0]
+        x1, y1 = box[1]
+        x2, y2 = box[2]
+        x3, y3 = box[3]
+
+        xt = np.linspace(x0, x1, n+1)
+        xb = np.linspace(x3, x2, n+1)
+        yt = np.linspace(y0, y1, n+1)
+        yb = np.linspace(y3, y2, n+1)
+
+        for i in range(n):
+            token_box = [(xt[i], yt[i]), (xt[i+1], yt[i+1]),
+                         (xb[i+1], yb[i+1]), (xb[i], yb[i])]
+            encoded.append(token_box)
+    return encoded
+
+
 def detokenize_boxes(num_tokens, token_boxes):
     decoded = []
     idx = 0
     for num_token in num_tokens:
-        decoded.append(token_boxes[idx])
+        first_token = token_boxes[idx]
+        last_token = token_boxes[idx + num_token - 1]
+        box = [first_token[0], last_token[1], first_token[2], last_token[3]]
+        # box = [first_token[0], last_token[1], first_token[2], last_token[3]]
+        # box = last_token
+        decoded.append(box)
         idx = idx + num_token
     decoded = np.stack(decoded, 0)
     return decoded.tolist()
