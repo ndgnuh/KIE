@@ -126,7 +126,7 @@ class KieModel(nn.Module):
         embeddings = self.embeddings(
             input_ids=batch["texts"],
             bbox=batch["boxes"],
-            position_ids=batch["position_ids"],
+            # position_ids=batch["position_ids"],
         )
         hidden = self.encoder(embeddings, attention_mask=batch.get(
             "attention_masks", None)).last_hidden_state

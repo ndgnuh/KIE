@@ -1,7 +1,8 @@
+import random
 from typing import Dict, Optional, Iterable, Generator
 from functools import partial
 
-import random
+import numpy as np
 import torch
 from lightning import Fabric
 from torch import optim
@@ -13,6 +14,29 @@ from kie.models import KieConfig, KieModel, KieOutput
 from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import tokenize
+from kie.graph_utils import ee2adj, adj2ee
+
+
+def augment(sample: Sample) -> Sample:
+    if random.uniform(0, 1) <= 0.9:
+        return sample
+    n = len(sample.texts)
+    perm = list(range(n))
+    random.shuffle(perm)
+    return Sample(
+        texts=[sample.texts[i] for i in perm],
+        boxes=[sample.boxes[i] for i in perm],
+        links=[
+            (perm[i], perm[j])
+            for i, j in sample.links
+        ],
+        classes={
+            perm[i]: c
+            for i, c in sample.classes.items()
+        },
+        image_width=sample.image_width,
+        image_height=sample.image_height,
+    )
 
 
 def loop_over_loader(loader: Iterable, n: int) -> Generator:
@@ -59,6 +83,7 @@ class Trainer:
 
         # Load data
         def transform(sample: Sample):
+            sample = augment(sample)
             encoded: EncodedSample = tokenize.tokenize(self.tokenizer, sample)
             return {k: torch.tensor(v) for k, v in encoded.items()}
         _make_dataloader = partial(
@@ -177,8 +202,9 @@ class Trainer:
         classes = loader.dataset.classes
         for pr, gt in random.choices(final_outputs, k=3):
             tqdm.write('PR:\t' + str(prettify_sample(pr, classes)))
+            tqdm.write("+" * 3)
             tqdm.write('GT:\t' + str(prettify_sample(gt, classes)))
-            tqdm.write('-------------------')
+            tqdm.write('-' * 30)
 
         loss = sum(losses) / len(losses)
         tqdm.write(f"Validation loss: {loss}")
@@ -211,7 +237,7 @@ if __name__ == "__main__":
         validate_every=100,
         train_data="data/inv_aug_noref_noimg.json",
         validate_data="data/inv_aug_noref_noimg.json",
-        lr=8e-5,
+        lr=5e-5,
     )
     trainer = Trainer(train_config, model_config)
     ic(trainer)
