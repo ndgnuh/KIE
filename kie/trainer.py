@@ -190,12 +190,26 @@ class Trainer:
 
         losses = []
         final_outputs = []
+
+        def f1(pr, gt):
+            tp = torch.count_nonzero((pr == 1) == (gt == 1))
+            fp = torch.count_nonzero((pr == 1) == (gt == 0))
+            # tn = (pr == 0) == (gt == 1)
+            fn = torch.count_nonzero((pr == 0) == (gt == 1))
+            f1 = 2 * tp / (2 * tp + fp + fn + 1e-6)
+            return f1
+
+        rel_acc = []
         for batch in tqdm(loader, "validating"):
             batch_size = batch['texts'].shape[0]
             outputs: KieOutput = model(batch)
             for i in range(batch_size):
+                sample = batch[i]
+                # Relation scores
+                rel_acc.append(f1(sample.adj, outputs.relations).cpu().item())
+
                 # Extract
-                sample = batch[i].to_numpy()
+                sample = sample.to_numpy()
                 output = outputs[i]
 
                 # Postprocess GT
@@ -217,7 +231,8 @@ class Trainer:
             tqdm.write('-' * 30)
 
         loss = sum(losses) / len(losses)
-        tqdm.write(f"Validation loss: {loss}")
+        score = sum(rel_acc) / len(rel_acc)
+        tqdm.write(f"Validation loss: {loss}, Link F1: {score}")
 
     def save_model(self):
         self.model_save_path = "model.pt"

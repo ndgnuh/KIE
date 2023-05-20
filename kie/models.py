@@ -69,18 +69,16 @@ class KieOutput(BatchNamespace):
         class_probs = torch.softmax(self.class_logits, dim=-1)
         self.class_scores, self.classes = torch.max(class_probs, dim=-1)
 
-        # Post process relation logits
+    @property
+    def relations(self):
         relation_probs = torch.softmax(self.relation_logits, dim=-1)
-        scores, paths = relation_probs.max(dim=-1)
-        # ic(paths.shape)
-        # self.relations = torch.vmap(path_graph.decode_paths)(paths)
-        self.relation_scores, self.relations = torch.max(
-            relation_probs, dim=-1)
-
-    # def get_relations(self):
-    #     return torch.stack([
-    #         self.nms(score) for score in self.relations_scores
-    #     ])
+        relation_scores = relation_probs[..., 1] - relation_probs[..., 0]
+        if self.batched:
+            return torch.stack([
+                self.nms(score) for score in relation_scores
+            ])
+        else:
+            return self.nms(relation_scores)
 
     @torch.no_grad()
     def nms(self, scores, threshold=0):
@@ -184,7 +182,7 @@ class KieLoss(nn.Module):
         super().__init__()
         self.c_loss = nn.CrossEntropyLoss()
         # Ignore nega links completely
-        self.r_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.1, 1]))
+        self.r_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.2, 1]))
 
     def forward(self, pr_class_logits, gt_classes, pr_relation_logits, gt_relations):
         # Class to dim 1

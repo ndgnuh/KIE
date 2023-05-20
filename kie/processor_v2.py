@@ -51,10 +51,10 @@ class Encoded(BatchNamespace):
 
     def to_tensor(self):
         import torch
-        return Encoded(**{k: torch.tensor(v) for k, v in vars(self).items()})
+        return Encoded(**{k: torch.tensor(v) for k, v in self.items()})
 
     def to_numpy(self):
-        return Encoded(**{k: v.cpu().detach().numpy() for k, v in vars(self).items()})
+        return Encoded(**{k: v.cpu().detach().numpy() for k, v in self.items()})
 
 
 @dataclass
