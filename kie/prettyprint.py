@@ -3,24 +3,18 @@ def get_fullstring(start_point: int, links: list):
 
     current_number = start_point  # Số hiện tại trong chuỗi
     found_match = True
-    count = 0
-    unvisited = {}
+    visited_list = [current_number]  # Số đã duyệt
     while found_match:
-        if count >= 10:
-            break
         found_match = False
         # Tìm số sau của cặp [số trước, số sau] trong input
         for pair in links:
-            i, j = pair
-            if pair[0] == current_number and unvisited.get(i, True) and unvisited.get(j, True):
+            if pair[0] == current_number and pair[1] not in visited_list:
                 next_number = pair[1]
                 found_match = True
                 sequence.append(next_number)  # Thêm số sau vào chuỗi
                 current_number = next_number  # Cập nhật số hiện tại
-                unvisited[i] = True
-                unvisited[j] = True
+                visited_list.append(current_number)
                 break
-            count += 1
 
     return sequence
 
