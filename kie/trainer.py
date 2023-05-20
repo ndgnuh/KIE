@@ -18,25 +18,25 @@ from kie.graph_utils import ee2adj, adj2ee
 
 
 def augment(sample: Sample) -> Sample:
-    if random.uniform(0, 1) <= 0.9:
-        return sample
-    n = len(sample.texts)
-    perm = list(range(n))
-    random.shuffle(perm)
-    return Sample(
-        texts=[sample.texts[i] for i in perm],
-        boxes=[sample.boxes[i] for i in perm],
-        links=[
-            (perm[i], perm[j])
-            for i, j in sample.links
-        ],
-        classes={
-            perm[i]: c
-            for i, c in sample.classes.items()
-        },
-        image_width=sample.image_width,
-        image_height=sample.image_height,
-    )
+    # if random.uniform(0, 1) <= 0.9:
+    return sample
+    # n = len(sample.texts)
+    # perm = list(range(n))
+    # random.shuffle(perm)
+    # return Sample(
+    #     texts=[sample.texts[i] for i in perm],
+    #     boxes=[sample.boxes[i] for i in perm],
+    #     links=[
+    #         (perm[i], perm[j])
+    #         for i, j in sample.links
+    #     ],
+    #     classes={
+    #         perm[i]: c
+    #         for i, c in sample.classes.items()
+    #     },
+    #     image_width=sample.image_width,
+    #     image_height=sample.image_height,
+    # )
 
 
 def loop_over_loader(loader: Iterable, n: int) -> Generator:

@@ -41,4 +41,6 @@ def simple_postprocess(sample, fields: list):
         ids_sequence = get_fullstring(start_point, links)
         string_texts = [texts[x] for x in ids_sequence]
         label_text_list.append((class_name, " ".join(string_texts)))
-    return set(label_text_list)
+
+    # Sort by class name
+    return sorted(label_text_list, key=lambda k: k[0])

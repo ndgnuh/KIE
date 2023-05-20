@@ -6,6 +6,26 @@ from pydantic import BaseModel
 from torch import nn, Tensor
 from transformers import AutoModel
 from .utils import BatchDict, ez_get_item
+from .bros import BrosModel, BrosConfig
+
+
+@torch.no_grad()
+def adapt_input_bros(batch):
+    # B N 4 2
+    boxes = batch["boxes"] * 1.0
+
+    # Normalize
+    boxes[..., 0] = boxes[..., 0] / batch['image_width']
+    boxes[..., 1] = boxes[..., 1] / batch['image_height']
+
+    # Convert to xy8
+    boxes = boxes.transpose(-1, -2).flatten(-2).float()
+    batch["boxes"] = boxes
+    return dict(
+        input_ids=batch["texts"],
+        bbox=boxes,
+        attention_mask=batch.get("attention_masks", None),
+    )
 
 
 @torch.no_grad()
@@ -23,8 +43,11 @@ def adapt_input_layoutlm(batch):
     # X min Y min X max Y max
     boxes = torch.cat([mins, maxs], dim=-1)
     boxes = torch.round(boxes).type(torch.long)
-    batch["boxes"] = boxes
-    return batch
+    return dict(
+        bbox=boxes,
+        input_ids=batch["texts"],
+        attention_mask=batch.get("attention_masks", None),
+    )
 
 
 class KieConfig(BaseModel):
@@ -95,14 +118,39 @@ class KieLoss(nn.Module):
         return c_loss + r_loss
 
 
+# class RelativeSpatialAttention(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.config = config
+#         self.Q = nn.Linear(768, 768)
+#         self.K = nn.Linear(768, 768)
+#         self.V = nn.Linear(768, 768)
+
+#     def forward(self, x, boxes):
+#         # x: B N D
+#         # bboxes: B N 8
+#         Q = self.Q(boxes)
+#         K = self.K(boxes)
+#         V = self.V(x)
+#         W = torch.matmul(Q, K.transpose(-1, -2))
+#         W = torch.softmax(W / 8, dim=-1)
+#         ctx = torch.matmul(W, V)
+#         return ctx
+
+
 class KieModel(nn.Module):
     def __init__(self, config: KieConfig):
         super().__init__()
-        pretrain = AutoModel.from_pretrained(config.backbone_name)
+        Pretrain = BrosModel if "bros" in config.backbone_name else AutoModel
+        pretrain = Pretrain.from_pretrained(config.backbone_name)
         pretrain_we = AutoModel.from_pretrained(config.word_embedding_name)
-        self.embeddings = pretrain.embeddings
-        self.embeddings.word_embeddings = pretrain_we.embeddings.word_embeddings
-        self.encoder = pretrain.encoder
+        self.adapt = adapt_input_bros if "bros" in config.backbone_name else adapt_input_layoutlm
+        pretrain.embeddings.word_embeddings = pretrain_we.embeddings.word_embeddings
+        self.encoder = pretrain
+
+        # Relative attention
+        self.bbox_embeddings = nn.Linear(8, 768)
+        self.rel_atn = nn.MultiheadAttention(768, 8)
 
         #
         # neck
@@ -122,14 +170,11 @@ class KieModel(nn.Module):
         self.loss = KieLoss()
 
     def forward(self, batch):
-        batch = adapt_input_layoutlm(batch)
-        embeddings = self.embeddings(
-            input_ids=batch["texts"],
-            bbox=batch["boxes"],
-            # position_ids=batch["position_ids"],
-        )
-        hidden = self.encoder(embeddings, attention_mask=batch.get(
-            "attention_masks", None)).last_hidden_state
+        # Input adapt to backbone
+        inputs = self.adapt(batch)
+
+        # Forward backbone
+        hidden = self.encoder(**inputs).last_hidden_state
 
         hidden = self.project(hidden)
 
@@ -157,7 +202,7 @@ if __name__ == "__main__":
     dataloader = make_dataloader(
         "data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
     config = KieConfig(
-        backbone_name="microsoft/layoutlm-base-cased",
+        backbone_name="bros-base-uncased",
         word_embedding_name=tokenizer_name,
         head_dims=256,
         num_classes=15,
