@@ -202,6 +202,9 @@ class KieLoss(nn.Module):
         pr_relation_scores, pr_relations = pr_class_logits.max(dim=-1)
         r_loss = F.cross_entropy(
             pr_relation_logits[type_mask], gt_relations[type_mask])
+        r_loss = r_loss + F.cross_entropy(
+            pr_relation_logits[~type_mask], gt_relations[~type_mask])
+        r_loss /= 2
         # masks = dict(
         #     tp=type_mask & (pr_relations == 1) & (gt_relations == 1),
         #     fp=type_mask & (pr_relations == 1) & (gt_relations == 0),

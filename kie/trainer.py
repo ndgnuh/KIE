@@ -1,5 +1,6 @@
 import random
 from typing import Dict, Optional, Iterable, Generator
+from collections import defaultdict
 from functools import partial
 
 import numpy as np
@@ -113,6 +114,7 @@ class Trainer:
         self.lr_scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer,
                                                           max_lr=train_config.lr,
                                                           pct_start=0.01,
+                                                          # final_div_factor=2,
                                                           total_steps=train_config.total_steps)
 
         # Store configs
@@ -176,20 +178,11 @@ class Trainer:
         def dict_get_index(d, i):
             return {k: v[i] for k, v in d.items()}
 
-        # def post_process(batch, output) -> EncodedSample:
-        #     return EncodedSample(
-        #         texts=batch['texts'].cpu().numpy(),
-        #         boxes=batch['boxes'].cpu().numpy(),
-        #         classes=(output or batch)['classes'].cpu().numpy(),
-        #         relations=(output or batch)['relations'].cpu().numpy(),
-        #         num_tokens=batch['num_tokens'].cpu().numpy(),
-        #         image_width=batch['image_width'].cpu().numpy(),
-        #         image_height=batch['image_height'].cpu().numpy()
-        #     )
         post_process = self.processor.decode
 
         losses = []
         final_outputs = []
+        metrics = defaultdict(list)
 
         def f1(pr, gt):
             tp = torch.count_nonzero((pr == 1) & (gt == 1))
@@ -199,14 +192,18 @@ class Trainer:
             f1 = 2 * tp / (2 * tp + fp + fn + 1e-6)
             return f1
 
-        rel_acc = []
         for batch in tqdm(loader, "validating"):
             batch_size = batch['texts'].shape[0]
             outputs: KieOutput = model(batch)
             for i in range(batch_size):
                 sample = batch[i]
                 # Relation scores
-                rel_acc.append(f1(outputs.relations, sample.adj).cpu().item())
+                metrics['rel_f1'].append(
+                    f1(outputs.relations, sample.adj).cpu().item()
+                )
+                metrics['cls_f1'].append(
+                    f1(outputs.classes, sample.classes).cpu().item()
+                )
 
                 # Extract
                 sample = sample.to_numpy()
@@ -221,7 +218,7 @@ class Trainer:
                 pr = post_process(sample)
 
                 final_outputs.append((pr, gt))
-            losses.append(outputs.loss.item())
+            metrics['loss'].append(outputs.loss.item())
 
         classes = loader.dataset.classes
         for pr, gt in random.choices(final_outputs, k=1):
@@ -230,9 +227,9 @@ class Trainer:
             tqdm.write('GT:\t' + str(prettify_sample(gt, classes)))
             tqdm.write('-' * 30)
 
-        loss = sum(losses) / len(losses)
-        score = sum(rel_acc) / len(rel_acc)
-        tqdm.write(f"Validation loss: {loss}, Link F1: {score}")
+        stats = {k: sum(v) / len(v) for k, v in metrics.items()}
+        from pprint import pformat
+        tqdm.write(pformat(stats))
 
     def save_model(self):
         self.model_save_path = "model.pt"
