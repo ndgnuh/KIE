@@ -198,8 +198,7 @@ def make_dataloader(
     transform: Callable,
     dataloader_options: Dict = dict(),
 ):
-    dataset = KieDataset(
-        "./data/inv_aug_noref_noimg.json", transform=transform)
+    dataset = KieDataset(root, transform=transform)
     dataloader = DataLoader(dataset, **dataloader_options)
     return dataloader
 
