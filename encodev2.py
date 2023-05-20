@@ -1,4 +1,4 @@
-from typing import List, TypeVar, ClassVar, Any
+from typing import List, TypeVar, ClassVar, Any, Dict
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
@@ -7,6 +7,37 @@ import numpy as np
 from scipy.stats import mode
 
 from kie.data import KieDataset, Sample
+
+
+def pad_to_shape(x, shape, value):
+    from torch.nn import functional as F
+    # padding_masks = torch.zeros_like(x)
+    if x.shape == shape:
+        return x
+    padder = [[0, s2 - s1] for s1, s2 in zip(x.shape, shape)]
+    padder = tuple(sum(reversed(padder), []))  # Merge list
+    padded = F.pad(x, padder, value=value)
+    return padded
+
+
+def autopad(tensors: List, values):
+    import torch
+    from functools import reduce
+    from torch.nn import functional as F
+    if not isinstance(values, list):
+        values = [values] * len(tensors)
+    max_shape = reduce(torch.maximum, [torch.tensor(t.shape) for t in tensors])
+    padded = [pad_to_shape(x, max_shape, value)
+              for x, value in zip(tensors, values)]
+    return padded
+
+
+def autopad_dict(tensor_dicts, value_dict):
+    padded = {}
+    for k, values in value_dict.items():
+        padded[k] = autopad([tensor_dict[k]
+                             for tensor_dict in tensor_dicts], values)
+    return padded
 
 
 @dataclass
@@ -21,10 +52,27 @@ class Encoded:
         import torch
         return Encoded(**{k: torch.tensor(v) for k, v in vars(self).items()})
 
+    def __getitem__(self, idx):
+        return getattr(self, idx)
+
 
 @dataclass
 class CollateFn:
-    pass
+    pad_class_id: int
+
+    def __call__(self, samples: List[Encoded]) -> Dict:
+        import torch
+        samples = [sample.to_tensor() for sample in samples]
+        values = dict(
+            texts=0,
+            boxes=0,
+            classes=self.pad_class_id,
+            adj=0,
+            token2item=[max(sample.token2item) + 1 for sample in samples]
+        )
+        samples = autopad_dict(samples, values)
+        samples = {k: torch.stack(v) for k, v in samples.items()}
+        return samples
 
 
 @dataclass
@@ -152,15 +200,18 @@ class Processor:
         )
 
     def collate_fn(self) -> CollateFn:
-        pass
+        return CollateFn(self.pad_class_id)
 
 
 if __name__ == "__main__":
     from transformers import AutoTokenizer
+    from torch.utils.data import DataLoader
     tokenizer = AutoTokenizer.from_pretrained("vinai/phobert-base")
     dataset = KieDataset("data/val.json")
     processor = Processor(tokenizer=tokenizer,
-                          classes=dataset.classes)
+                          classes=dataset.classes,
+                          )
+
     sample = dataset[0]
     enc = processor.encode(sample)
     dec = processor.decode(enc)
@@ -171,3 +222,8 @@ if __name__ == "__main__":
     assert set(sample.texts) == set(dec.texts)
     assert set(sample.links) == set(dec.links)
     assert set(sample.classes.items()) == set(dec.classes.items())
+
+    collate_fn = processor.collate_fn()
+    dataset.transform = processor.encode
+    dataloader = DataLoader(dataset, batch_size=4, collate_fn=collate_fn)
+    next(iter(dataloader))
