@@ -1,7 +1,7 @@
 import random
 from typing import Dict, Optional, Iterable, Generator
 from collections import defaultdict
-from functools import partial
+from functools import partial, reduce
 
 import numpy as np
 import torch
@@ -16,6 +16,31 @@ from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
+
+
+def compose2(f, g):
+    def composed(x):
+        return f(g(x))
+    return composed
+
+
+def compose(functions):
+    return reduce(compose2, functions)
+
+
+def with_probs(p: float):
+    from functools import wraps
+
+    def wrapper(f):
+        @wraps(f)
+        def wrapped(sample):
+            if random.uniform(0, 1) <= p:
+                return f(sample)
+            else:
+                return sample
+
+        return wrapped
+    return wrapper
 
 
 def augment(sample: Sample) -> Sample:
@@ -90,15 +115,22 @@ class Trainer:
 
         _make_dataloader = partial(
             make_dataloader,
-            transform=self.processor.encode,
             dataloader_options=dict(
                 **train_config.dataloader,
                 collate_fn=self.processor.collate_fn(),
             ),
         )
-        self.train_loader = _make_dataloader(root=train_config.train_data)
+        transform_train = compose([augment,
+                                   self.processor.encode])
+        transform_val = self.processor.encode
+        self.train_loader = _make_dataloader(
+            root=train_config.train_data,
+            transform=transform_train
+        )
         self.validate_loader = _make_dataloader(
-            root=train_config.validate_data)
+            root=train_config.validate_data,
+            transform=transform_val
+        )
 
         # Check num class constrain
         # Model have +1 class for background (no class)
