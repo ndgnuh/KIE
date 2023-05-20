@@ -2,6 +2,7 @@ from typing import *
 from dataclasses import dataclass
 
 import torch
+from torch.nn import functional as F
 from pydantic import BaseModel
 from torch import nn, Tensor
 from transformers import AutoModel
@@ -19,7 +20,7 @@ def adapt_input_bros(batch):
     boxes[..., 1] = boxes[..., 1] / batch['image_height']
 
     # Convert to xy8
-    boxes = boxes.transpose(-1, -2).flatten(-2).float()
+    boxes = boxes.flatten(-2).float()
     batch["boxes"] = boxes
     return dict(
         input_ids=batch["texts"],
@@ -70,8 +71,35 @@ class KieOutput:
 
         # Post process relation logits
         relation_probs = torch.softmax(self.relation_logits, dim=-1)
-        self.relation_scores, self.relations = torch.max(
-            relation_probs, dim=-1)
+        self.relations_scores = relation_probs[..., 1] - relation_probs[..., 0]
+        self.relations = torch.stack([
+            self.nms(score) for score in self.relations_scores
+        ])
+        # self.relation_scores, self.relations = torch.max(
+        #     relation_probs, dim=-1)
+
+    @torch.no_grad()
+    def nms(self, scores, threshold=0):
+        r, c = scores.shape
+        keeps = torch.zeros_like(scores)
+        scores = torch.clone(scores)
+        max_score = torch.inf
+        for i in range(r):
+            scores[i, i] = -torch.inf
+
+        for _ in range(10000):
+            idx = torch.argmax(scores, keepdims=True)
+            i, j = idx // c, idx % c
+            max_score = scores[i, j]
+            keeps[i, j] = 1
+
+            scores[i, :] = -torch.inf
+            scores[:, j] = -torch.inf
+            scores[j, i] = -torch.inf
+
+            if max_score < threshold:
+                break
+        return keeps
 
     def __getitem__(self, idx):
         return getattr(self, idx)
@@ -107,13 +135,55 @@ class KieLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.c_loss = nn.CrossEntropyLoss()
-        self.r_loss = nn.CrossEntropyLoss(weight=torch.tensor([0.1, 1.0]))
+        self.r_loss = nn.CrossEntropyLoss()
+        self.node_type = nn.Linear(768, 4)
+
+    def extra_target(self, gt_relations):
+        n = gt_relations.shape[-1]
+        all_node_types = []
+        for _gt in gt_relations:
+            # n * 2
+            r, c = torch.where(_gt)
+            incoming = [False] * n
+            outgoing = [False] * n
+            for (i, j) in zip(r, c):
+                incoming[i] = True
+                outgoing[j] = True
+
+            values = {
+                (True, True): 3,
+                (True, False): 2,
+                (False, True): 1,
+                (False, False): 0,
+            }
+            node_types = torch.tensor(
+                [values[(incoming[i], outgoing[i])] for i in range(n)],
+                device=gt_relations.device)
+
+            all_node_types.append(node_types)
+        all_node_types = torch.stack(all_node_types, 0)
+        return all_node_types
+
+    def extra_loss(self, hidden, gt_relations):
+        node_types = self.node_type(hidden)
+        node_types = node_types.transpose(1, -1)
+        gt_node_types = self.extra_target(gt_relations)
+        return self.c_loss(node_types, gt_node_types)
 
     def forward(self, pr_class_logits, gt_classes, pr_relation_logits, gt_relations):
         # Class to dim 1
         pr_class_logits = pr_class_logits.transpose(1, -1)
         pr_relation_logits = pr_relation_logits.transpose(1, -1)
+
         c_loss = self.c_loss(pr_class_logits, gt_classes)
+
+        # positive = (gt_relations == 1)
+        # negative = (gt_relations == 0)
+        # num_positive = torch.count_nonzero(positive)
+        # num_negative = torch.minimum(num_positive,
+        # gt_relations = F.one_hot(gt_relations, 2) * 1.0
+        # pr_relation_logits = torch.sigmoid(pr_relation_logits)
+        # r_loss = self.r_loss(pr_relation_logits, gt_relations)
         r_loss = self.r_loss(pr_relation_logits, gt_relations)
         return c_loss + r_loss
 
@@ -185,6 +255,7 @@ class KieModel(nn.Module):
             loss = self.loss(
                 class_logits, batch["classes"], relation_logits, batch["relations"]
             )
+            # loss = loss + self.loss.extra_loss(hidden, batch["relations"])
         else:
             loss = None
 
