@@ -181,12 +181,7 @@ class KieLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.c_loss = nn.CrossEntropyLoss()
-        # Ignore nega links completely
-        self.r_loss = nn.CrossEntropyLoss(
-            weight=torch.tensor([0.002, 1]),
-            # label_smoothing=0.1,
-            # reduction='none'
-        )
+        self.r_loss = nn.CrossEntropyLoss()
 
     def forward(self, pr_class_logits, gt_classes, pr_relation_logits, gt_relations):
 
@@ -195,54 +190,13 @@ class KieLoss(nn.Module):
         c_loss = self.c_loss(pr_class_logits.transpose(1, -1), gt_classes)
 
         # ignore padding and other's tokens
-        type_mask = (gt_classes != 0) & (gt_classes != 2)
-        type_mask = type_mask[:, :, None] & type_mask[:, None, :]
+        mask = gt_relations == 1
 
         # weighted loss based on what we want to do
-        pr_relation_scores, pr_relations = pr_class_logits.max(dim=-1)
-        r_loss = F.cross_entropy(
-            pr_relation_logits[type_mask], gt_relations[type_mask])
-        r_loss = r_loss + F.cross_entropy(
-            pr_relation_logits[~type_mask], gt_relations[~type_mask])
-        r_loss /= 2
-        # masks = dict(
-        #     tp=type_mask & (pr_relations == 1) & (gt_relations == 1),
-        #     fp=type_mask & (pr_relations == 1) & (gt_relations == 0),
-        #     fn=type_mask & (pr_relations == 0) & (gt_relations == 1),
-        #     tn=type_mask & (pr_relations == 0) & (gt_relations == 0),
-        # )
-        # counts = {k: torch.count_nonzero(v) for k, v in masks.items()}
-        # totals = pr_relations.numel()
-        # weights = {k: v / totals for k, v in counts.items()}
-        # weights = dict(tp=1, fp=1, fn=1, tn=1)
-        # r_losses = [F.cross_entropy(pr_relation_logits[mask], gt_relations[mask]) * weights[k]
-        #             for k, mask in masks.items()]
-        # r_losses = [loss for loss in r_losses if not torch.isnan(loss)]
-        # r_loss = F.cross_entropy(
-        #     pr_relation_logits[gt_relations], positive[gt_relations])
-        # r_loss = self.r_loss(pr_relation_logits.transpose(1, -1), gt_relations)
-        # p = torch.count_nonzero(gt_relations)
-        # n = torch.count_nonzero(~gt_relations)
-        # pnc = p / (n + p)
-        # ic(pnc) ~ 0.0019
-
-        # if len(r_losses) == 0:
-        #     loss = c_loss
-        # else:
+        r_loss_1 = self.r_loss(pr_relation_logits[mask], gt_relations[mask])
+        r_loss_2 = self.r_loss(pr_relation_logits[~mask], gt_relations[~mask])
+        r_loss = (r_loss_1 + r_loss_2) / 2
         loss = r_loss + c_loss
-
-        # Penalty for sub-sequence boxes
-        # pr_scores, pr_classes = pr_class_logits.max(dim=-1)
-        # for b, pr_classes_ in enumerate(pr_classes):
-        #     for i in pr_classes_:
-        #         if i == 1:
-        #             # Penalty for no incoming edge
-        #             probs = pr_relation_logits[b, :, i]
-        #             loss = loss + (probs[0] - probs[1]).sum()
-        #         elif i > 2:
-        #             # Penalty for no out going edge
-        #             probs = pr_relation_logits[b, i, :]
-        #             loss = loss + (probs[0] - probs[1]).sum()
         return loss
 
 
