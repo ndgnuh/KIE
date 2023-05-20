@@ -1,18 +1,25 @@
 from .fileio import read
 from .functional import Compose
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import *
+
+# Work around Python behaviours
+# https://stackoverflow.com/questions/51575931/class-inheritance-in-python-3-7-dataclasses
 
 
 @dataclass
 class BatchNamespace:
+    batched: bool = field(default=True, init=False)
+
     def __getitem__(self, i):
         if isinstance(i, str):
             return getattr(self, i)
 
-        T = type(self)
         results = {}
+        T = type(self)
         for k, _ in get_type_hints(self).items():
+            if k == "batched":
+                continue
             v = self[k]
             if not hasattr(v, "__getitem__"):
                 continue
@@ -20,7 +27,9 @@ class BatchNamespace:
                 results[k] = v
             else:
                 results[k] = v[i]
-        return T(**results)
+        ret = T(**results)
+        ret.batched = False
+        return ret
 
     @classmethod
     def excluded(cls):
@@ -36,7 +45,10 @@ class BatchNamespace:
 
     # Dict-ish interface
     def items(self):
-        return vars(self).items()
+        d = vars(self)
+        if "batched" in d:
+            d.pop("batched")
+        return d.items()
 
     def get(self, key, default=None):
         return getattr(self, key, default)
