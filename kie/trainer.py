@@ -192,10 +192,10 @@ class Trainer:
         final_outputs = []
 
         def f1(pr, gt):
-            tp = torch.count_nonzero((pr == 1) == (gt == 1))
-            fp = torch.count_nonzero((pr == 1) == (gt == 0))
+            tp = torch.count_nonzero((pr == 1) & (gt == 1))
+            fp = torch.count_nonzero((pr == 1) & (gt == 0))
             # tn = (pr == 0) == (gt == 1)
-            fn = torch.count_nonzero((pr == 0) == (gt == 1))
+            fn = torch.count_nonzero((pr == 0) & (gt == 1))
             f1 = 2 * tp / (2 * tp + fp + fn + 1e-6)
             return f1
 
@@ -206,7 +206,7 @@ class Trainer:
             for i in range(batch_size):
                 sample = batch[i]
                 # Relation scores
-                rel_acc.append(f1(sample.adj, outputs.relations).cpu().item())
+                rel_acc.append(f1(outputs.relations, sample.adj).cpu().item())
 
                 # Extract
                 sample = sample.to_numpy()
