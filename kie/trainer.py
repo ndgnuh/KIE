@@ -16,53 +16,8 @@ from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
-
-
-def compose2(f, g):
-    def composed(x):
-        return f(g(x))
-    return composed
-
-
-def compose(functions):
-    return reduce(compose2, functions)
-
-
-def with_probs(p: float):
-    from functools import wraps
-
-    def wrapper(f):
-        @wraps(f)
-        def wrapped(sample):
-            if random.uniform(0, 1) <= p:
-                return f(sample)
-            else:
-                return sample
-
-        return wrapped
-    return wrapper
-
-
-def augment(sample: Sample) -> Sample:
-    # if random.uniform(0, 1) <= 0.9:
-    return sample
-    # n = len(sample.texts)
-    # perm = list(range(n))
-    # random.shuffle(perm)
-    # return Sample(
-    #     texts=[sample.texts[i] for i in perm],
-    #     boxes=[sample.boxes[i] for i in perm],
-    #     links=[
-    #         (perm[i], perm[j])
-    #         for i, j in sample.links
-    #     ],
-    #     classes={
-    #         perm[i]: c
-    #         for i, c in sample.classes.items()
-    #     },
-    #     image_width=sample.image_width,
-    #     image_height=sample.image_height,
-    # )
+from . import augment as A
+# augment import compose, RandomPermutation, with_probs
 
 
 def loop_over_loader(loader: Iterable, n: int) -> Generator:
@@ -120,8 +75,11 @@ class Trainer:
                 collate_fn=self.processor.collate_fn(),
             ),
         )
-        transform_train = compose([augment,
-                                   self.processor.encode])
+        transform_train = A.compose(
+            A.with_probs(A.RandomPermutation(copy=False), 0.5),
+            self.processor.encode
+        )
+        print(transform_train)
         transform_val = self.processor.encode
         self.train_loader = _make_dataloader(
             root=train_config.train_data,
