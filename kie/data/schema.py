@@ -31,7 +31,7 @@ class Sample(BaseModel):
         return classes
 
     def __getitem__(self, idx):
-        return setattr(self, idx)
+        return getattr(self, idx)
 
 
 @dataclass

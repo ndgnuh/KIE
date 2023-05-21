@@ -1,8 +1,8 @@
 import random
-from functools import wraps, reduce, cached_property
-from dataclasses import dataclass
+from functools import wraps, reduce
 from typing import List
-from .data import Sample
+
+from ..data import Sample
 
 
 def recursive_copy(obj):
@@ -17,33 +17,33 @@ def recursive_copy(obj):
         return obj
 
 
-@dataclass
-class RandomPermutation:
-    copy: bool = True
+def random_permutation(sample: Sample, copy: bool = True) -> Sample:
+    if copy:
+        new_sample = recursive_copy(sample.dict())
+    else:
+        new_sample = sample.dict()
 
-    def __call__(self, sample: Sample) -> Sample:
-        if self.copy:
-            new_sample = recursive_copy(sample)
-        else:
-            new_sample = sample
+    new_ids = list(range(len(sample['texts'])))
+    random.shuffle(new_ids)
 
-        new_ids = list(range(len(sample['texts'])))
-        random.shuffle(new_ids)
+    for new_id, old_id in enumerate(new_ids):
+        new_sample['boxes'][new_id] = sample['boxes'][old_id]
+        new_sample['texts'][new_id] = sample['texts'][old_id]
 
-        for new_id, old_id in enumerate(new_ids):
-            new_sample['boxes'][new_id] = sample['boxes'][old_id]
-            new_sample['texts'][new_id] = sample['texts'][old_id]
+    links = set()
+    for (i, j) in sample.links:
+        i2 = new_ids.index(i)
+        j2 = new_ids.index(i)
+        links.add((i2, j2))
+    new_sample['links'] = links
 
-        for i, pair in enumerate(sample['links']):
-            new_sample['links'][i] = [new_ids.index(x) for x in pair]
+    new_sample['classes'] = {}
+    for key in sample['classes']:
+        old_id = int(key)
+        new_sample['classes'][new_ids.index(
+            old_id)] = sample['classes'][key]
 
-        new_sample['classes'] = {}
-        for key in sample['classes']:
-            old_id = int(key)
-            new_sample['classes'][new_ids.index(
-                old_id)] = sample['classes'][key]
-
-        return new_sample
+    return Sample(**new_sample)
 
 
 def _compose(f, g):
@@ -55,25 +55,22 @@ def _compose(f, g):
     return composed
 
 
-def compose(*functions):
+def compose(functions):
     """
     return the function which is composed of functions
     """
     func = reduce(_compose, functions)
-    func.__repr__ = '\n'.join([repr(f) for f in functions])
+    func.__repr__ = lambda: '\n'.join([repr(f) for f in functions])
+    func.__str__ = lambda: '\n'.join([repr(f) for f in functions])
     return func
 
 
-@dataclass
-class Compose:
-    functions: List
-
-    @cached_property
-    def composed(self):
-        return compose(self.functions)
-
-    def __call__(self, *a, **k):
-        return self.composed(*a, **k)
+def pipeline(functions):
+    """
+    return the function which is composed of functions
+    """
+    func = reduce(_compose, reversed(functions))
+    return func
 
 
 def _with_probs(p: float):

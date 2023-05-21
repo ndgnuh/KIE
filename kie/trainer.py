@@ -16,7 +16,7 @@ from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
-from . import augment as A
+from . import augments as A
 # augment import compose, RandomPermutation, with_probs
 
 
@@ -75,10 +75,10 @@ class Trainer:
                 collate_fn=self.processor.collate_fn(),
             ),
         )
-        transform_train = A.compose(
+        transform_train = A.Pipeline([
             A.with_probs(A.RandomPermutation(copy=False), 0.5),
             self.processor.encode
-        )
+        ])
         print(transform_train)
         transform_val = self.processor.encode
         self.train_loader = _make_dataloader(
