@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from pydantic import BaseModel, Field
 
+import random
 
 def enforce_convert(cls):
     th = get_type_hints(cls)
@@ -15,6 +16,38 @@ def enforce_convert(cls):
     cls.__post_init__ = __post_init__
     return cls
 
+
+def recursive_copy(obj):
+    if isinstance(obj, dict):
+        new_dict = {}
+        for key, value in obj.items():
+            new_dict[key] = recursive_copy(value)
+        return new_dict
+    elif isinstance(obj, list):
+        return [recursive_copy(item) for item in obj]
+    else:
+        return obj
+    
+def augment(sample):
+    new_sample = recursive_copy(sample)
+
+    new_ids = list(range(len(sample['texts'])))
+    random.shuffle(new_ids)
+
+    
+    for new_id, old_id in enumerate(new_ids):
+        new_sample['boxes'][new_id] = sample['boxes'][old_id]
+        new_sample['texts'][new_id] = sample['texts'][old_id]
+    
+    for i, pair in enumerate(sample['links']):
+        new_sample['links'][i]=[new_ids.index(x) for x in pair]
+
+    new_sample['classes'] = {}
+    for key in sample['classes']:
+        old_id = int(key)
+        new_sample['classes'][new_ids.index(old_id)] = sample['classes'][key]
+    
+    return new_sample
 
 class Sample(BaseModel):
     texts: List[str]
