@@ -189,10 +189,9 @@ class KieLoss(nn.Module):
         # transpose 1 -1 to put the class to 1 dim
         c_loss = self.c_loss(pr_class_logits.transpose(1, -1), gt_classes)
 
-        # ignore padding and other's tokens
+        # mask negative and positive and calculate loss so that
+        # the loss is balanced, the positive loss is too low if not
         mask = gt_relations == 1
-
-        # weighted loss based on what we want to do
         r_loss_1 = self.r_loss(pr_relation_logits[mask], gt_relations[mask])
         r_loss_2 = self.r_loss(pr_relation_logits[~mask], gt_relations[~mask])
         r_loss = (r_loss_1 + r_loss_2) / 2
@@ -232,7 +231,6 @@ class KieModel(nn.Module):
 
         # Relative attention
         self.bbox_embeddings = nn.Linear(8, 768)
-        self.rel_atn = nn.MultiheadAttention(768, 8)
 
         #
         # neck
@@ -257,17 +255,17 @@ class KieModel(nn.Module):
 
         # Forward backbone
         hidden = self.encoder(**inputs).last_hidden_state
-
         hidden = self.project(hidden)
 
+        # Prediction heads
         class_logits = self.classify(hidden)
         relation_logits = self.relation_tagger(hidden)
 
         if "classes" in batch:
             loss = self.loss(
-                class_logits, batch.classes, relation_logits, batch.adj
+                class_logits, batch.classes,
+                relation_logits, batch.adj
             )
-            # loss = loss + self.loss.extra_loss(hidden, batch["relations"])
         else:
             loss = None
 
