@@ -8,15 +8,15 @@ import torch
 from lightning import Fabric
 from torch import optim
 from pydantic import BaseModel, Field
-from transformers import AutoTokenizer
 from tqdm import tqdm
 
-from kie.models import KieConfig, KieModel, KieOutput
+from kie.models import KieModel, KieOutput, Tokenizer
 from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
 from kie.prettyprint import simple_postprocess as prettify_sample
 from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
 from . import augments as A
+from .configs import TrainConfig, ModelConfig
 # augment import compose, RandomPermutation, with_probs
 
 
@@ -33,33 +33,12 @@ def loop_over_loader(loader: Iterable, n: int) -> Generator:
                 return
 
 
-class TrainConfig(BaseModel):
-    # Scheduling
-    total_steps: int
-    validate_every: int
-
-    # Data
-    train_data: str
-    validate_data: str
-
-    # Train process
-    lr: float
-
-    # Optionals
-    dataloader: Dict = Field(default_factory=dict)
-    print_every: Optional[int] = None
-
-    def __post_init__(self):
-        if self.print_every is None:
-            self.print_every = max(self.validate_every // 5, 1)
-
 
 class Trainer:
-    def __init__(self, train_config: TrainConfig, model_config: KieConfig):
+    def __init__(self, train_config: TrainConfig, model_config: ModelConfig):
         # Initialize model
         self.model = KieModel(model_config)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_config.word_embedding_name)
+        self.tokenizer = Tokenizer(model_config)
         self.fabric = Fabric(accelerator="auto")
 
         # Load data
@@ -237,7 +216,7 @@ if __name__ == "__main__":
     tokenizer_name = "vinai/phobert-base"
     # tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
     # dataloader = make_dataloader("data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
-    model_config = KieConfig(
+    model_config = ModelConfig(
         backbone_name="microsoft/layoutlm-base-cased",
         word_embedding_name=tokenizer_name,
         head_dims=256,

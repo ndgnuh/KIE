@@ -1,0 +1,10 @@
+total_steps: 20_000
+validate_every: 200
+lr: 1e-4
+
+train_data: data/train.json
+validate_data: data/val.json
+
+dataloader:
+  batch_size: 4
+  num_workers: 0

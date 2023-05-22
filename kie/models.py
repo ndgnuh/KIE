@@ -5,10 +5,11 @@ import torch
 from torch.nn import functional as F
 from pydantic import BaseModel
 from torch import nn, Tensor
-from transformers import AutoModel
+from transformers import AutoModel, AutoTokenizer
 from .utils import BatchNamespace, dataclass
 from .bros import BrosModel, BrosConfig
 from .graph_utils import path_graph
+from .configs import ModelConfig
 
 
 @torch.no_grad()
@@ -45,14 +46,6 @@ def adapt_input_layoutlm(batch):
         input_ids=batch["texts"],
         attention_mask=batch.get("attention_masks", None),
     )
-
-
-class KieConfig(BaseModel):
-    backbone_name: str
-    word_embedding_name: str
-    head_dims: int
-    num_classes: int
-    classes: List[str]
 
 
 @dataclass
@@ -105,13 +98,13 @@ class KieOutput(BatchNamespace):
 
 
 class ClassificationHead(nn.Sequential):
-    def __init__(self, config: KieConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.classify = nn.Linear(config.head_dims, config.num_classes)
 
 
 class CPRelationTaggerHead(nn.Module):
-    def __init__(self, config: KieConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.head = nn.Linear(config.head_dims, config.head_dims)
         self.tail = nn.Linear(config.head_dims, config.head_dims)
@@ -136,7 +129,7 @@ class CPRelationTaggerHead(nn.Module):
 
 
 class PathRelationTaggerHead(nn.Module):
-    def __init__(self, config: KieConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         head_dims = config.head_dims
         self.none = nn.Parameter(torch.zeros(1, 1, head_dims))
@@ -158,7 +151,7 @@ class PathRelationTaggerHead(nn.Module):
 
 
 class RelationTaggerHead(nn.Module):
-    def __init__(self, config: KieConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         head_dims = config.head_dims
         self.head = nn.Linear(head_dims, head_dims)
@@ -220,14 +213,15 @@ class KieLoss(nn.Module):
 
 
 class KieModel(nn.Module):
-    def __init__(self, config: KieConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
-        Pretrain = BrosModel if "bros" in config.backbone_name else AutoModel
-        pretrain = Pretrain.from_pretrained(config.backbone_name)
-        pretrain_we = AutoModel.from_pretrained(config.word_embedding_name)
-        self.adapt = adapt_input_bros if "bros" in config.backbone_name else adapt_input_layoutlm
-        pretrain.embeddings.word_embeddings = pretrain_we.embeddings.word_embeddings
+        Pretrain = BrosModel if "bros" in config.backbone else AutoModel
+        pretrain = Pretrain.from_pretrained(config.backbone)
+        if config.word_embeddings is not None:
+            pretrain_we = AutoModel.from_pretrained(config.word_embeddings)
+            pretrain.embeddings.word_embeddings = pretrain_we.embeddings.word_embeddings
         self.encoder = pretrain
+        self.adapt = adapt_input_bros if "bros" in config.backbone else adapt_input_layoutlm
 
         # Relative attention
         self.bbox_embeddings = nn.Linear(8, 768)
@@ -273,6 +267,8 @@ class KieModel(nn.Module):
             class_logits=class_logits, relation_logits=relation_logits, loss=loss
         )
 
+def Tokenizer(config: ModelConfig):
+    return AutoTokenizer.from_pretrained(config.word_embeddings)
 
 if __name__ == "__main__":
     from icecream import install
@@ -282,7 +278,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
     dataloader = make_dataloader(
         "data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
-    config = KieConfig(
+    config = ModelConfig(
         backbone_name="bros-base-uncased",
         word_embedding_name=tokenizer_name,
         head_dims=256,
