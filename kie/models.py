@@ -174,7 +174,8 @@ class KieLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.c_loss = nn.CrossEntropyLoss()
-        self.r_loss = nn.CrossEntropyLoss()
+        self.r_loss_p = nn.CrossEntropyLoss()
+        self.r_loss_n = nn.CrossEntropyLoss()
 
     def forward(self, pr_class_logits, gt_classes, pr_relation_logits, gt_relations):
 
@@ -184,11 +185,14 @@ class KieLoss(nn.Module):
 
         # mask negative and positive and calculate loss so that
         # the loss is balanced, the positive loss is too low if not
-        mask = gt_relations == 1
-        r_loss_1 = self.r_loss(pr_relation_logits[mask], gt_relations[mask])
-        r_loss_2 = self.r_loss(pr_relation_logits[~mask], gt_relations[~mask])
-        r_loss = (r_loss_1 + r_loss_2) / 2
-        loss = r_loss + c_loss
+        p_mask = gt_relations == 1
+        # n_mask = (gt_classes != 0)
+        # n_mask = n_mask[:, :, None] & n_mask[:, None, :]
+        n_mask = gt_relations == 0
+        r_loss_p = self.r_loss_p(pr_relation_logits[p_mask], gt_relations[p_mask])
+        r_loss_n = self.r_loss_n(pr_relation_logits[n_mask], gt_relations[n_mask])
+        loss = r_loss_p + r_loss_n + c_loss * 0.1 # because classification converge very fast
+
         return loss
 
 

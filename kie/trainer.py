@@ -1,4 +1,6 @@
 import random
+from pprint import pformat
+from dataclasses import dataclass
 from typing import Dict, Optional, Iterable, Generator
 from collections import defaultdict
 from functools import partial, reduce
@@ -6,6 +8,7 @@ from functools import partial, reduce
 import numpy as np
 import torch
 from lightning import Fabric
+from torch import nn
 from torch import optim
 from pydantic import BaseModel, Field
 from tqdm import tqdm
@@ -17,6 +20,7 @@ from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
 from . import augments as A
 from .configs import TrainConfig, ModelConfig
+from .metrics import Metric, Statistics, get_tensor_f1, get_e2e_f1
 
 # augment import compose, RandomPermutation, with_probs
 
@@ -32,6 +36,16 @@ def loop_over_loader(loader: Iterable, n: int) -> Generator:
             yield step, batch
             if step >= n:
                 return
+
+
+@dataclass
+class TrainingMetrics:
+    f1_classification: Metric = Metric(mode="max")
+    f1_relations: Metric = Metric(mode="max")
+    f1_end2end: Metric = Metric(mode="max")
+    validation_loss: Metric = Metric(mode="min")
+    training_loss: Metric= Metric(mode="min")
+    lr: float = 0
 
 
 class Trainer:
@@ -58,7 +72,7 @@ class Trainer:
             ),
         )
         transform_train = A.Pipeline(
-            [A.with_probs(A.RandomPermutation(copy=False), 0.5), self.processor.encode]
+            [A.with_probs(A.RandomPermutation(copy=False), 0.1), self.processor.encode]
         )
         print(transform_train)
         transform_val = self.processor.encode
@@ -92,6 +106,9 @@ class Trainer:
         self.train_config = train_config
         self.model_config = model_config
 
+        # Metrics
+        self.metrics = TrainingMetrics(lr=train_config.lr)
+
     def state_dict(self):
         # optimizer_state = self.optimizer.state_dict()
         # optimizer_state.pop("param_groups")
@@ -117,21 +134,28 @@ class Trainer:
             total=total_steps,
             dynamic_ncols=True,
         )
+
+        train_loss = Statistics(np.mean)
         for step, batch in pbar:
             optimizer.zero_grad()
             output: KieOutput = model(batch)
             fabric.backward(output.loss)
+            fabric.clip_gradients(model, optimizer, max_norm=5)
             optimizer.step()
             lr_scheduler.step()
             pbar.set_description(
                 f"#{step}/{total_steps} loss: {output.loss.item():.4e}"
             )
+
+            train_loss.append(output.loss.item())
+            self.metrics.lr = lr_scheduler.get_last_lr()[0]
             if step % print_every == 0:
-                tqdm.write(f"LR: {lr_scheduler.get_last_lr()[0]:.2e}")
+                self.metrics.training_loss.update(train_loss.get())
 
                 # Checkpointing
                 self.current_step = step
                 torch.save(self.state_dict(), "checkpoint.pt")
+                train_loss = Statistics(np.mean)
 
             if step % validate_every == 0:
                 self.validate()
@@ -142,10 +166,10 @@ class Trainer:
         self.save_model()
 
     @torch.no_grad()
-    def validate(self):
+    def validate(self, loader=None):
         model = self.fabric.setup(self.model)
         model = model.eval()
-        loader = self.fabric.setup_dataloaders(self.validate_loader)
+        loader = self.fabric.setup_dataloaders(loader or self.validate_loader)
 
         def dict_get_index(d, i):
             return {k: v[i] for k, v in d.items()}
@@ -156,24 +180,20 @@ class Trainer:
         final_outputs = []
         metrics = defaultdict(list)
 
-        def f1(pr, gt):
-            tp = torch.count_nonzero((pr == 1) & (gt == 1))
-            fp = torch.count_nonzero((pr == 1) & (gt == 0))
-            # tn = (pr == 0) == (gt == 1)
-            fn = torch.count_nonzero((pr == 0) & (gt == 1))
-            f1 = 2 * tp / (2 * tp + fp + fn + 1e-6)
-            return f1
-
+        metrics = {k: Statistics(np.mean) for k in vars(self.metrics).keys()}
         for batch in tqdm(loader, "validating"):
             batch_size = batch["texts"].shape[0]
             outputs: KieOutput = model(batch)
             for i in range(batch_size):
                 sample = batch[i]
+
                 # Relation scores
-                metrics["rel_f1"].append(f1(outputs.relations, sample.adj).cpu().item())
-                metrics["cls_f1"].append(
-                    f1(outputs.classes, sample.classes).cpu().item()
-                )
+                score = get_tensor_f1(outputs.relations, sample.adj).cpu().item()
+                metrics["f1_relations"].append(score)
+
+                # Classification score
+                score = get_tensor_f1(outputs.classes, sample.classes).cpu().item()
+                metrics["f1_classification"].append(score)
 
                 # Extract
                 sample = sample.to_numpy()
@@ -187,20 +207,29 @@ class Trainer:
                 sample.adj = output.relations.cpu().numpy()
                 pr = post_process(sample)
 
-                final_outputs.append((pr, gt))
-            metrics["loss"].append(outputs.loss.item())
+                # End to end format
+                pr = prettify_sample(pr, self.model_config.classes)
+                gt = prettify_sample(gt, self.model_config.classes)
 
-        classes = loader.dataset.classes
+                # End to end score
+                score = get_e2e_f1(pr, gt)
+                metrics["f1_end2end"].append(score)
+
+                final_outputs.append((pr, gt))
+            metrics["validation_loss"].append(outputs.loss.item())
+
         for pr, gt in random.choices(final_outputs, k=1):
-            tqdm.write("PR:\t" + str(prettify_sample(pr, classes)))
+            tqdm.write("PR:\t" + str(pr))
             tqdm.write("+" * 3)
-            tqdm.write("GT:\t" + str(prettify_sample(gt, classes)))
+            tqdm.write("GT:\t" + str(gt))
             tqdm.write("-" * 30)
 
-        stats = {k: sum(v) / len(v) for k, v in metrics.items()}
-        from pprint import pformat
+        for k, v in metrics.items():
+            metric = getattr(self.metrics, k)
+            if isinstance(metric, Metric):
+                metric.update(v.get())
 
-        tqdm.write(pformat(stats))
+        tqdm.write(pformat(vars(self.metrics)))
 
     def save_model(self):
         self.model_save_path = "model.pt"

@@ -5,8 +5,6 @@ from .utils import read
 
 
 class TrainConfig(BaseModel):
-    name: str  # experiment name
-
     # Scheduling
     total_steps: int
     validate_every: int
@@ -31,9 +29,7 @@ class TrainConfig(BaseModel):
     @classmethod
     def from_file(cls, file_path):
         config = read(file_path)
-        config["name"] = path.basename(file_path)
         return cls.parse_obj(config)
-
 
 class ModelConfig(BaseModel):
     backbone: str
@@ -44,6 +40,7 @@ class ModelConfig(BaseModel):
     word_embeddings: Optional[str] = None
     pretrained_weights: Optional[str] = None
     inference_weights: Optional[str] = None
+    name: Optional[str] = None
 
     @property
     def num_classes(self):
@@ -52,4 +49,5 @@ class ModelConfig(BaseModel):
     @classmethod
     def from_file(cls, file_path):
         config = read(file_path)
+        config['name'] = path.basename(file_path)
         return cls.parse_obj(config)
