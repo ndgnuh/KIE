@@ -14,12 +14,12 @@ from torch import optim
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from kie.models import KieModel, KieOutput, Tokenizer
-from kie.data import make_dataloader, InputProcessor, Sample, EncodedSample
-from kie.prettyprint import simple_postprocess as prettify_sample
-from kie import processor_v2
-from kie.graph_utils import ee2adj, adj2ee
+from . import processor_v2
 from . import augments as A
+from . import utils
+from .models import KieModel, KieOutput, Tokenizer
+from .data import make_dataloader, InputProcessor, Sample, EncodedSample
+from .prettyprint import simple_postprocess as prettify_sample
 from .configs import TrainConfig, ModelConfig
 from .metrics import Metric, Statistics, get_tensor_f1, get_e2e_f1
 
@@ -55,10 +55,12 @@ class Trainer:
         self.model = KieModel(model_config)
         self.tokenizer = Tokenizer(model_config)
         self.fabric = Fabric(accelerator="auto")
-        if model_config.pretrained_weights is not None:
-            self.model.load_state_dict(
-                torch.load(model_config.pretrained_weights, map_location="cpu")
-            )
+
+        utils.Result(model_config.pretrained_weights)\
+            .then(lambda file: utils.down_or_load(file))\
+            .then(lambda file: torch.load(model_config.pretrained_weights, map_location="cpu"))\
+            .then(lambda sd: self.model.load_state_dict(sd))\
+            .catch(lambda err: print(f"Error when loading weight: {err}"))
 
         # Load data
         self.processor = processor_v2.Processor(
@@ -75,7 +77,8 @@ class Trainer:
         transform_train = A.Pipeline(
             [
                 A.WithProbs(A.RandomPermutation(copy=False), 0.3),
-                A.WithProbs(A.RandomRotate(min_degree=-10, max_degree=10), 0.3),
+                A.WithProbs(A.RandomRotate(
+                    min_degree=-10, max_degree=10), 0.3),
                 self.processor.encode,
             ]
         )
@@ -98,7 +101,8 @@ class Trainer:
         )
 
         # Optimizer
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=train_config.lr)
+        self.optimizer = optim.AdamW(
+            self.model.parameters(), lr=train_config.lr)
         self.lr_scheduler = optim.lr_scheduler.OneCycleLR(
             self.optimizer,
             max_lr=train_config.lr,
@@ -168,7 +172,7 @@ class Trainer:
         # Save one last time
         self.save_model()
 
-    @torch.no_grad()
+    @ torch.no_grad()
     def validate(self, loader=None):
         model = self.fabric.setup(self.model)
         model = model.eval()
@@ -191,11 +195,13 @@ class Trainer:
                 sample = batch[i]
 
                 # Relation scores
-                score = get_tensor_f1(outputs.relations, sample.adj).cpu().item()
+                score = get_tensor_f1(
+                    outputs.relations, sample.adj).cpu().item()
                 metrics["f1_relations"].append(score)
 
                 # Classification score
-                score = get_tensor_f1(outputs.classes, sample.classes).cpu().item()
+                score = get_tensor_f1(
+                    outputs.classes, sample.classes).cpu().item()
                 metrics["f1_classification"].append(score)
 
                 # Extract
@@ -227,10 +233,9 @@ class Trainer:
             tqdm.write("GT:\t" + str(gt))
             tqdm.write("-" * 30)
 
-        if save_weights:
-            f1_end2end = metrics.pop("f1_end2end")
-            if self.metrics.f1_end2end.update(f1_end2end.get()):
-                self.save_model(self.model_config.best_weight_path)
+        f1_end2end = metrics.pop("f1_end2end")
+        if self.metrics.f1_end2end.update(f1_end2end.get()):
+            self.save_model(self.model_config.best_weight_path)
 
         for k, v in metrics.items():
             metric = getattr(self.metrics, k)
