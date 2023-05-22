@@ -41,7 +41,7 @@ def adapt_input_layoutlm(batch):
     return dict(
         bbox=boxes,
         input_ids=batch["texts"],
-        # attention_mask=batch.get("attention_masks", None),
+        attention_mask=batch.get("attention_masks", None),
     )
 
 
