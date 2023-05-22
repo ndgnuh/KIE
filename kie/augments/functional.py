@@ -19,18 +19,15 @@ def recursive_copy(obj):
 
 
 def center_transform_polygon(polygon: list[list[int, int]], transformation):
-    # Numpy is easier
-    polygon_np = np.array(polygon)
     # Calculate center
-    center = polygon_np.mean(axis=0)
+    center = polygon.mean(axis=0)
     # Translate to center
-    translated_polygon = polygon_np - center
+    translated_polygon = polygon - center
     # Transform
     rotated_polygon = np.matmul(translated_polygon, transformation)
     # Translate back
     rotated_polygon += center
-    # Back to list
-    return rotated_polygon.tolist()
+    return rotated_polygon
 
 
 def random_rotate(sample: Sample, min_degree: float, max_degree: float):
@@ -40,7 +37,26 @@ def random_rotate(sample: Sample, min_degree: float, max_degree: float):
     c = np.cos(rad)
     m = np.array([[c, -s], [s, c]])
     sample = sample.dict()
-    sample["boxes"] = center_transform_polygon(sample["boxes"], m)
+    sample["boxes"] = center_transform_polygon(
+        np.array(sample["boxes"]), m
+    ).tolist()
+    return Sample(**sample)
+
+
+def better_random_rotate(sample: Sample, min_degree: float, max_degree: float,
+                         max_iterations: int = 2):
+    boxes = np.array(sample["boxes"])
+    num_boxes = boxes.shape[0]
+    for i in range(max_iterations):
+        deg = random.uniform(min_degree, max_degree)
+        rad = np.deg2rad(deg)
+        s = np.sin(rad)
+        c = np.cos(rad)
+        m = np.array([[c, -s], [s, c]])
+        mask = np.random.random_integers(0, 1, num_boxes)
+        boxes[mask] = center_transform_polygon(boxes[mask], m)
+    sample = sample.dict()
+    sample["boxes"] = boxes.tolist()
     return Sample(**sample)
 
 

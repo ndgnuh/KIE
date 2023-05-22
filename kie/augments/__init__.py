@@ -33,5 +33,10 @@ def wrap_hof(func, *fields):
 Compose = wrap_hof(F.compose, "functions")
 Pipeline = wrap_hof(F.pipeline, "functions")
 WithProbs = wrap_hof(F.with_probs, "callback", "p")
+
+# Transformation
 RandomPermutation = wrap_transform(F.random_permutation, "copy")
 RandomRotate = wrap_transform(F.random_rotate, "min_degree", "max_degree")
+BetterRandomRotate = wrap_transform(
+    F.better_random_rotate, "min_degree", "max_degree", "max_iterations"
+)
