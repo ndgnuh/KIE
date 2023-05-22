@@ -17,6 +17,7 @@ from kie import processor_v2
 from kie.graph_utils import ee2adj, adj2ee
 from . import augments as A
 from .configs import TrainConfig, ModelConfig
+
 # augment import compose, RandomPermutation, with_probs
 
 
@@ -33,18 +34,20 @@ def loop_over_loader(loader: Iterable, n: int) -> Generator:
                 return
 
 
-
 class Trainer:
     def __init__(self, train_config: TrainConfig, model_config: ModelConfig):
         # Initialize model
         self.model = KieModel(model_config)
         self.tokenizer = Tokenizer(model_config)
         self.fabric = Fabric(accelerator="auto")
+        if model_config.pretrained_weights is not None:
+            self.model.load_state_dict(
+                torch.load(model_config.pretrained_weights, map_location="cpu")
+            )
 
         # Load data
         self.processor = processor_v2.Processor(
-            tokenizer=self.tokenizer,
-            classes=model_config.classes
+            tokenizer=self.tokenizer, classes=model_config.classes
         )
 
         _make_dataloader = partial(
@@ -54,19 +57,16 @@ class Trainer:
                 collate_fn=self.processor.collate_fn(),
             ),
         )
-        transform_train = A.Pipeline([
-            A.with_probs(A.RandomPermutation(copy=False), 0.5),
-            self.processor.encode
-        ])
+        transform_train = A.Pipeline(
+            [A.with_probs(A.RandomPermutation(copy=False), 0.5), self.processor.encode]
+        )
         print(transform_train)
         transform_val = self.processor.encode
         self.train_loader = _make_dataloader(
-            root=train_config.train_data,
-            transform=transform_train
+            root=train_config.train_data, transform=transform_train
         )
         self.validate_loader = _make_dataloader(
-            root=train_config.validate_data,
-            transform=transform_val
+            root=train_config.validate_data, transform=transform_val
         )
 
         # Check num class constrain
@@ -74,17 +74,19 @@ class Trainer:
         assert len(self.train_loader.dataset.classes) == len(
             self.validate_loader.dataset.classes
         )
-        assert len(self.train_loader.dataset.classes)\
-            == (model_config.num_classes - self.processor.num_special_tokens)
+        assert len(self.train_loader.dataset.classes) == (
+            model_config.num_classes - self.processor.num_special_tokens
+        )
 
         # Optimizer
-        self.optimizer = optim.AdamW(
-            self.model.parameters(), lr=train_config.lr)
-        self.lr_scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer,
-                                                          max_lr=train_config.lr,
-                                                          pct_start=0.01,
-                                                          # final_div_factor=2,
-                                                          total_steps=train_config.total_steps)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=train_config.lr)
+        self.lr_scheduler = optim.lr_scheduler.OneCycleLR(
+            self.optimizer,
+            max_lr=train_config.lr,
+            pct_start=0.01,
+            # final_div_factor=2,
+            total_steps=train_config.total_steps,
+        )
 
         # Store configs
         self.train_config = train_config
@@ -96,9 +98,7 @@ class Trainer:
         # Super heavy
         # "optimizer": optimizer_state,
         # "model": self.model.state_dict(),
-        return {
-            "current_step": self.current_step
-        }
+        return {"current_step": self.current_step}
 
     def train(self):
         total_steps = self.train_config.total_steps
@@ -112,9 +112,11 @@ class Trainer:
         lr_scheduler = self.lr_scheduler
         train_loader = self.fabric.setup_dataloaders(self.train_loader)
 
-        pbar = tqdm(loop_over_loader(train_loader, total_steps),
-                    total=total_steps,
-                    dynamic_ncols=True)
+        pbar = tqdm(
+            loop_over_loader(train_loader, total_steps),
+            total=total_steps,
+            dynamic_ncols=True,
+        )
         for step, batch in pbar:
             optimizer.zero_grad()
             output: KieOutput = model(batch)
@@ -122,7 +124,8 @@ class Trainer:
             optimizer.step()
             lr_scheduler.step()
             pbar.set_description(
-                f"#{step}/{total_steps} loss: {output.loss.item():.4e}")
+                f"#{step}/{total_steps} loss: {output.loss.item():.4e}"
+            )
             if step % print_every == 0:
                 tqdm.write(f"LR: {lr_scheduler.get_last_lr()[0]:.2e}")
 
@@ -138,7 +141,7 @@ class Trainer:
         # Save one last time
         self.save_model()
 
-    @ torch.no_grad()
+    @torch.no_grad()
     def validate(self):
         model = self.fabric.setup(self.model)
         model = model.eval()
@@ -162,15 +165,13 @@ class Trainer:
             return f1
 
         for batch in tqdm(loader, "validating"):
-            batch_size = batch['texts'].shape[0]
+            batch_size = batch["texts"].shape[0]
             outputs: KieOutput = model(batch)
             for i in range(batch_size):
                 sample = batch[i]
                 # Relation scores
-                metrics['rel_f1'].append(
-                    f1(outputs.relations, sample.adj).cpu().item()
-                )
-                metrics['cls_f1'].append(
+                metrics["rel_f1"].append(f1(outputs.relations, sample.adj).cpu().item())
+                metrics["cls_f1"].append(
                     f1(outputs.classes, sample.classes).cpu().item()
                 )
 
@@ -187,17 +188,18 @@ class Trainer:
                 pr = post_process(sample)
 
                 final_outputs.append((pr, gt))
-            metrics['loss'].append(outputs.loss.item())
+            metrics["loss"].append(outputs.loss.item())
 
         classes = loader.dataset.classes
         for pr, gt in random.choices(final_outputs, k=1):
-            tqdm.write('PR:\t' + str(prettify_sample(pr, classes)))
+            tqdm.write("PR:\t" + str(prettify_sample(pr, classes)))
             tqdm.write("+" * 3)
-            tqdm.write('GT:\t' + str(prettify_sample(gt, classes)))
-            tqdm.write('-' * 30)
+            tqdm.write("GT:\t" + str(prettify_sample(gt, classes)))
+            tqdm.write("-" * 30)
 
         stats = {k: sum(v) / len(v) for k, v in metrics.items()}
         from pprint import pformat
+
         tqdm.write(pformat(stats))
 
     def save_model(self):
