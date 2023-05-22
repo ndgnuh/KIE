@@ -55,12 +55,15 @@ class Trainer:
         self.model = KieModel(model_config)
         self.tokenizer = Tokenizer(model_config)
         self.fabric = Fabric(accelerator="auto")
-
-        utils.Result(model_config.pretrained_weights)\
-            .then(lambda file: utils.down_or_load(file))\
-            .then(lambda file: torch.load(model_config.pretrained_weights, map_location="cpu"))\
-            .then(lambda sd: self.model.load_state_dict(sd))\
-            .catch(lambda err: print(f"Error when loading weight: {err}"))
+        try:
+            weights = utils.load_pt(model_config.pretrained_weights)
+            model.load_state_dict(weights)
+        except Exception as e:
+            print(
+                f"Can't not load pretrained weight \
+                {model_config.pretrained_weights},\
+                error: {e}, ignoring"
+            )
 
         # Load data
         self.processor = processor_v2.Processor(

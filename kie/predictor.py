@@ -1,4 +1,5 @@
 import torch
+from . import utils
 from .configs import ModelConfig
 from .models import KieModel, Tokenizer
 from .processor_v2 import Processor
@@ -10,10 +11,9 @@ class Predictor:
     def __init__(self, model_config):
         self.model = KieModel(model_config)
         self.tokenizer = Tokenizer(model_config)
-        if model_config.inference_weights is not None:
-            self.model.load_state_dict(
-                torch.load(model_config.inference_weights, map_location="cpu")
-            )
+
+        weights = utils.load_pt(model_config.inference_weights)
+        self.model.load_state_dict(weights)
         self.processor = Processor(
             tokenizer=self.tokenizer, classes=model_config.classes
         )

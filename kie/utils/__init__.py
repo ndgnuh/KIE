@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import *
+from . import fileio
 from .download import download, down_or_load
-from .fileio import read
 from .functional import Compose
 
 # Work around Python behaviours
@@ -59,32 +59,17 @@ class BatchNamespace:
         return hasattr(self, key)
 
 
-def pcall(f, *a, **k):
-    try:
-        return True, f(*a, **k)
-    except Exception as err:
-        return False, err
+def load_pt(path):
+    """
+    Wrapper around `torch.load` that allows downloading files.
+    """
+    path = down_or_load(path)
+    return torch.load(path, map_location='cpu')
 
 
-L = TypeVar("L")
-R = TypeVar("R")
-
-
-@dataclass
-class Result(Generic[L, R]):
-    value: Optional[L]
-    error: Optional[R] = None
-
-    def then(self, f, *a, **k):
-        if self.error is not None:
-            return self
-        try:
-            result = f(self.value, *a, **k)
-            return Result(result, None)
-        except Exception as e:
-            return Result(None, e)
-
-    def catch(self, f):
-        if self.error is None:
-            return self
-        return f(self.error)
+def read(path: str):
+    """
+    Wrapper around `utils.fileio.read` that allows downloading files.
+    """
+    path = down_or_load(path)
+    return fileio.read(path)
