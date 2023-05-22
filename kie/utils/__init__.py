@@ -63,6 +63,7 @@ def load_pt(path):
     """
     Wrapper around `torch.load` that allows downloading files.
     """
+    import torch
     path = down_or_load(path)
     return torch.load(path, map_location='cpu')
 
