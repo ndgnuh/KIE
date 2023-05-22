@@ -52,12 +52,9 @@ class Statistics(list):
 
 
 def get_tensor_f1(pr, gt):
-    import torch
-
-    tp = torch.count_nonzero((pr == 1) & (gt == 1))
-    fp = torch.count_nonzero((pr == 1) & (gt == 0))
-    # tn = (pr == 0) == (gt == 1)
-    fn = torch.count_nonzero((pr == 0) & (gt == 1))
+    tp = ((pr == 1) & (gt == 1)).sum()
+    fp = ((pr == 1) & (gt == 0)).sum()
+    fn = ((pr == 0) & (gt == 1)).sum()
     f1 = 2 * tp / (2 * tp + fp + fn + 1e-6)
     return f1
 
@@ -73,3 +70,26 @@ def get_e2e_f1(pr_list, gt_list):
 
     f1 = (2 * tp) / (2 * tp + fn + fp + 1e-6)
     return f1
+
+
+def get_e2e_f1_per_class(pr_list, gt_list, classes):
+    matches = []
+    for (pr_cls, pr_content), (gt_cls, gt_content) in product(pr_list, gt_list):
+        if pr_cls == gt_cls and gt_content == pr_content:
+            matches.append((pr_cls, pr_content))
+    tps = matches
+    fps = set(pr_list) - set(matches)
+    fns = set(gt_list) - set(matches)
+
+    f1s = {}
+    for c in classes:
+        tps_c = [pair for pair in tps if pair[0] == c]
+        fps_c = [pair for pair in fps if pair[0] == c]
+        fns_c = [pair for pair in fns if pair[0] == c]
+        tp = len(tps_c)
+        fp = len(fps_c)
+        fn = len(fns_c)
+        f1 = (2 * tp) / (2 * tp + fn + fp + 1e-6)
+        f1s[c] = f1
+
+    return f1s

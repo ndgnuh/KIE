@@ -45,7 +45,7 @@ class TrainingMetrics:
     f1_relations: Metric = Metric(mode="max")
     f1_end2end: Metric = Metric(mode="max")
     validation_loss: Metric = Metric(mode="min")
-    training_loss: Metric= Metric(mode="min")
+    training_loss: Metric = Metric(mode="min")
     lr: float = 0
 
 
@@ -73,9 +73,11 @@ class Trainer:
             ),
         )
         transform_train = A.Pipeline(
-            [A.WithProbs(A.RandomPermutation(copy=False), 0.3),
-             A.WithProbs(A.RandomRotate(min_degree=-10, max_degree=10), 0.3),
-             self.processor.encode]
+            [
+                A.WithProbs(A.RandomPermutation(copy=False), 0.3),
+                A.WithProbs(A.RandomRotate(min_degree=-10, max_degree=10), 0.3),
+                self.processor.encode,
+            ]
         )
         print(transform_train)
         transform_val = self.processor.encode
@@ -225,9 +227,10 @@ class Trainer:
             tqdm.write("GT:\t" + str(gt))
             tqdm.write("-" * 30)
 
-        f1_end2end = metrics.pop("f1_end2end")
-        if self.metrics.f1_end2end.update(f1_end2end.get()):
-            self.save_model(self.model_config.best_weight_path)
+        if save_weights:
+            f1_end2end = metrics.pop("f1_end2end")
+            if self.metrics.f1_end2end.update(f1_end2end.get()):
+                self.save_model(self.model_config.best_weight_path)
 
         for k, v in metrics.items():
             metric = getattr(self.metrics, k)
@@ -241,37 +244,3 @@ class Trainer:
         os.makedirs(dirname, exist_ok=True)
         torch.save(self.model.state_dict(), save_path)
         tqdm.write(f"Model saved to {save_path}")
-
-
-if __name__ == "__main__":
-    from icecream import install
-    from transformers import AutoTokenizer
-
-    install()
-    tokenizer_name = "vinai/phobert-base"
-    # tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    # dataloader = make_dataloader("data/inv_aug_noref_noimg.json", prepare_fn(tokenizer))
-    model_config = ModelConfig(
-        backbone_name="microsoft/layoutlm-base-cased",
-        word_embedding_name=tokenizer_name,
-        head_dims=256,
-        num_classes=15,
-    )
-
-    train_config = TrainConfig(
-        total_steps=1000,
-        validate_every=100,
-        train_data="data/inv_aug_noref_noimg.json",
-        validate_data="data/inv_aug_noref_noimg.json",
-        lr=5e-5,
-    )
-    trainer = Trainer(train_config, model_config)
-    ic(trainer)
-    trainer.train()
-    # print(model)
-    # for batch in dataloader:
-    #     output = model(batch)
-    #     ic(output)
-    # break
-    for i in loop_over_loader(range(100), 5):
-        ic(i)
