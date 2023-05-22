@@ -57,7 +57,7 @@ class Trainer:
         self.fabric = Fabric(accelerator="auto")
         try:
             weights = utils.load_pt(model_config.pretrained_weights)
-            model.load_state_dict(weights)
+            self.model.load_state_dict(weights)
         except Exception as e:
             print(
                 f"Can't not load pretrained weight \
