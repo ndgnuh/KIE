@@ -12,8 +12,8 @@ class TrainConfig(BaseModel):
     validate_every: int
 
     # Data
-    train_data: str
-    validate_data: str
+    train_data: Union[str, List[str]]
+    validate_data: Union[str, List[str]]
 
     # Train process
     lr: float

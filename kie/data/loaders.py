@@ -1,11 +1,11 @@
-from functools import partial
+from functools import partial, reduce
 from typing import Callable, List, Dict, Optional, Tuple, Set, Any
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 from pydantic import BaseModel, Field
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, ChainDataset
 from torch.nn import functional as F
 from transformers import AutoTokenizer
 
@@ -119,7 +119,16 @@ def prepare_input(tokenizer, sample: Sample):
 class KieDataset(Dataset):
     def __init__(self, root, transform=idendity):
         super().__init__()
-        data = read(root)
+        if isinstance(root, list):
+            dataset = list(map(read, root))
+            for d1, d2 in zip(dataset, dataset[1:]):
+                assert d1["classes"] == d2["classes"]
+            data = {
+                "classes": dataset[0]["classes"],
+                "samples": sum([data["samples"] for data in dataset], [])
+            }
+        else:
+            data = read(root)
         self.root = root
         self.transform = transform
         self.classes = data["classes"]
@@ -134,7 +143,21 @@ class KieDataset(Dataset):
         return sample
 
 
-@dataclass
+class KieChainDataset(ChainDataset):
+    def __post_init__(self):
+        num_datasets = len(self.datasets)
+        if num_datasets <= 1:
+            return
+
+        for i in range(num_datasets - 1):
+            assert set(self.datasets[i].classes) == set(self.datasets[i + 1])
+
+    @ property
+    def classes(self):
+        return self.datasets[0].classes
+
+
+@ dataclass
 class CollateFunction:
     pad_token_id: int
     pad_box_id: int = 0
