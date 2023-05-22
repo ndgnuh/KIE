@@ -4,7 +4,7 @@ from .functional import *
 
 
 def snake_to_camel(name):
-    return ''.join(part.title() for part in name.split("_"))
+    return "".join(part.title() for part in name.split("_"))
 
 
 def wrap_transform(func, *fields):
@@ -34,3 +34,4 @@ Compose = wrap_hof(F.compose, "functions")
 Pipeline = wrap_hof(F.pipeline, "functions")
 WithProbs = wrap_hof(F.with_probs, "callback", "p")
 RandomPermutation = wrap_transform(F.random_permutation, "copy")
+RandomRotate = wrap_transform(F.random_rotate, "min_degree", "max_degree")

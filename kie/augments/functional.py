@@ -2,6 +2,7 @@ import random
 from functools import wraps, reduce
 from typing import List
 
+import numpy as np
 from ..data import Sample
 
 
@@ -17,31 +18,56 @@ def recursive_copy(obj):
         return obj
 
 
+def center_transform_polygon(polygon: list[list[int, int]], transformation):
+    # Numpy is easier
+    polygon_np = np.array(polygon)
+    # Calculate center
+    center = polygon_np.mean(axis=0)
+    # Translate to center
+    translated_polygon = polygon_np - center
+    # Transform
+    rotated_polygon = np.matmul(translated_polygon, transformation)
+    # Translate back
+    rotated_polygon += center
+    # Back to list
+    return rotated_polygon.tolist()
+
+
+def random_rotate(sample: Sample, min_degree: float, max_degree: float):
+    deg = random.uniform(min_degree, max_degree)
+    rad = np.deg2rad(deg)
+    s = np.sin(rad)
+    c = np.cos(rad)
+    m = np.array([[c, -s], [s, c]])
+    sample = sample.dict()
+    sample["boxes"] = center_transform_polygon(sample["boxes"], m)
+    return Sample(**sample)
+
+
 def random_permutation(sample: Sample, copy: bool = True) -> Sample:
     if copy:
         new_sample = recursive_copy(sample.dict())
     else:
         new_sample = sample.dict()
 
-    new_ids = list(range(len(sample['texts'])))
+    new_ids = list(range(len(sample["texts"])))
     random.shuffle(new_ids)
 
     for new_id, old_id in enumerate(new_ids):
-        new_sample['boxes'][new_id] = sample['boxes'][old_id]
-        new_sample['texts'][new_id] = sample['texts'][old_id]
+        new_sample["boxes"][new_id] = sample["boxes"][old_id]
+        new_sample["texts"][new_id] = sample["texts"][old_id]
 
     links = set()
-    for (i, j) in sample.links:
+    for i, j in sample.links:
         i2 = new_ids.index(i)
         j2 = new_ids.index(i)
         links.add((i2, j2))
-    new_sample['links'] = links
+    new_sample["links"] = links
 
-    new_sample['classes'] = {}
-    for key in sample['classes']:
+    new_sample["classes"] = {}
+    for key in sample["classes"]:
         old_id = int(key)
-        new_sample['classes'][new_ids.index(
-            old_id)] = sample['classes'][key]
+        new_sample["classes"][new_ids.index(old_id)] = sample["classes"][key]
 
     return Sample(**new_sample)
 
@@ -50,8 +76,10 @@ def _compose(f, g):
     """
     return function which is composed of 2 function f g
     """
+
     def composed(x):
         return f(g(x))
+
     return composed
 
 
@@ -60,8 +88,8 @@ def compose(functions):
     return the function which is composed of functions
     """
     func = reduce(_compose, functions)
-    func.__repr__ = lambda: '\n'.join([repr(f) for f in functions])
-    func.__str__ = lambda: '\n'.join([repr(f) for f in functions])
+    func.__repr__ = lambda: "\n".join([repr(f) for f in functions])
+    func.__str__ = lambda: "\n".join([repr(f) for f in functions])
     return func
 
 
@@ -77,6 +105,7 @@ def _with_probs(p: float):
     """
     Returns a function that call the wrapped with probability
     """
+
     def wrapper(f):
         @wraps(f)
         def wrapped(sample):
@@ -86,6 +115,7 @@ def _with_probs(p: float):
                 return sample
 
         return wrapped
+
     return wrapper
 
 

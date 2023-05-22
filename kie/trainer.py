@@ -73,7 +73,9 @@ class Trainer:
             ),
         )
         transform_train = A.Pipeline(
-            [A.with_probs(A.RandomPermutation(copy=False), 0.1), self.processor.encode]
+            [A.WithProbs(A.RandomPermutation(copy=False), 0.3),
+             A.WithProbs(A.RandomRotate(min_degree=-10, max_degree=10), 0.3),
+             self.processor.encode]
         )
         print(transform_train)
         transform_val = self.processor.encode
@@ -223,7 +225,8 @@ class Trainer:
             tqdm.write("GT:\t" + str(gt))
             tqdm.write("-" * 30)
 
-        if self.metrics.f1_end2end.update(metrics["f1_end2end"].get()):
+        f1_end2end = metrics.pop("f1_end2end")
+        if self.metrics.f1_end2end.update(f1_end2end.get()):
             self.save_model(self.model_config.best_weight_path)
 
         for k, v in metrics.items():

@@ -27,11 +27,11 @@ class Metric(Generic[T]):
     def update(self, value):
         if np.isnan(value):
             return False
-        updated = self.should_update(self.current, value)
-        if updated:
+        should_update = self.should_update(self.current, value)
+        if should_update:
             self.best = value
         self.current = value
-        return updated
+        return should_update
 
     def __repr__(self):
         return pformat({"current": self.current, "best": self.best})
