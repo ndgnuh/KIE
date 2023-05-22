@@ -56,6 +56,12 @@ class Encoded(BatchNamespace):
     def to_numpy(self):
         return Encoded(**{k: v.cpu().detach().numpy() for k, v in self.items()})
 
+    def to_batch(self):
+        return Encoded(**{k: v[None, :] for k, v in self.items()})
+
+    def de_batch(self):
+        return Encoded(**{k: v.squeeze(0) for k, v in self.items()})
+
 
 @dataclass
 class CollateFn:
@@ -144,7 +150,7 @@ class Processor:
                 classes[idx] = self.sub_class_id
 
         # Normalize bounding boxes
-        boxes = np.array(boxes) * 1.0
+        boxes = np.array(boxes).astype('float32')
         boxes[:, :, 0] /= sample.image_width
         boxes[:, :, 1] /= sample.image_height
 
