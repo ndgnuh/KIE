@@ -185,24 +185,3 @@ def detokenize(tokenizer, encoded: EncodedSample) -> Sample:
         image_width=encoded.image_width,
         image_height=encoded.image_height,
     )
-
-
-if __name__ == "__main__":
-    from tqdm import tqdm
-    from kie.data import (
-        KieDataset,
-        prepare_input,
-        make_dataloader,
-        InputProcessor,
-        Sample,
-    )
-
-    tokenizer_ = AutoTokenizer.from_pretrained(
-        "vinai/phobert-base", local_files_only=True
-    )
-    root = "data/inv_aug_noref_noimg.json"
-    base_dataset = KieDataset(root)
-    for sample in tqdm(base_dataset):
-        run_tests(tokenizer_, sample)
-    encoded = tokenize(tokenizer_, sample)
-    # print(encoded)

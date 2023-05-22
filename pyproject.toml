@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kie"
+version = "0.1.0"
+dependencies = [
+	"torch",
+	"lightning",
+	"pydantic",
+	"transformers",
+	"numpy",
+	"tqdm",
+	"networkx",
+	"pytest",
+	"gdown"
+]
+description = "Key information extraction"
+requires-python = ">=3.9"
+classifiers = [
+	"Programming Language :: Python :: 3",
+	"License :: OSI Approved :: MIT License",
+	"Operating System :: OS Independent",
+]
+
+[[project.authors]]
+name = "Hùng Nguyễn"
+email = "ndgnuh@example.com"
+
+
+[tool.setuptools.package-dir]
+kie = "kie"
+
+[project.urls]
+"Homepage" = "https://github.com/ndgnuh/kie"
+"Bug Tracker" = "https://github.com/ndgnuh/kie/issues"
