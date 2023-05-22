@@ -1,4 +1,5 @@
 import random
+import os
 from pprint import pformat
 from dataclasses import dataclass
 from typing import Dict, Optional, Iterable, Generator
@@ -154,13 +155,11 @@ class Trainer:
 
                 # Checkpointing
                 self.current_step = step
-                torch.save(self.state_dict(), "checkpoint.pt")
+                self.save_model(self.model_config.latest_weight_path)
                 train_loss = Statistics(np.mean)
 
             if step % validate_every == 0:
                 self.validate()
-                self.save_model()
-                # Tested model.training, it is still true without manually set so
 
         # Save one last time
         self.save_model()
@@ -224,6 +223,9 @@ class Trainer:
             tqdm.write("GT:\t" + str(gt))
             tqdm.write("-" * 30)
 
+        if self.metrics.f1_end2end.update(metrics["f1_end2end"].get()):
+            self.save_model(self.model_config.best_weight_path)
+
         for k, v in metrics.items():
             metric = getattr(self.metrics, k)
             if isinstance(metric, Metric):
@@ -231,12 +233,11 @@ class Trainer:
 
         tqdm.write(pformat(vars(self.metrics)))
 
-    def save_model(self):
-        self.model_save_path = "model.pt"
-        torch.save(
-            self.model.state_dict(),
-            self.model_save_path,
-        )
+    def save_model(self, save_path):
+        dirname = os.path.dirname(save_path)
+        os.makedirs(dirname, exist_ok=True)
+        torch.save(self.model.state_dict(), save_path)
+        tqdm.write(f"Model saved to {save_path}")
 
 
 if __name__ == "__main__":

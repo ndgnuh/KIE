@@ -1,7 +1,9 @@
 from typing import *
 from os import path
 from pydantic import BaseModel, Field, validator
+
 from .utils import read
+from . import const
 
 
 class TrainConfig(BaseModel):
@@ -31,6 +33,7 @@ class TrainConfig(BaseModel):
         config = read(file_path)
         return cls.parse_obj(config)
 
+
 class ModelConfig(BaseModel):
     backbone: str
     classes: List[str]
@@ -49,5 +52,19 @@ class ModelConfig(BaseModel):
     @classmethod
     def from_file(cls, file_path):
         config = read(file_path)
-        config['name'] = path.basename(file_path)
+        config["name"] = path.splitext(path.basename(file_path))[0]
         return cls.parse_obj(config)
+
+    @property
+    def best_weight_path(self):
+        name = f"{self.name}.{const.best_suffix}.pt"
+        return path.join(const.weight_directory, name)
+
+    @property
+    def latest_weight_path(self):
+        name = f"{self.name}.{const.latest_suffix}.pt"
+        return path.join(const.weight_directory, name)
+
+    @property
+    def log_path(self):
+        return path.join(const.log_path, self.name)
