@@ -28,33 +28,30 @@ def adapt_input_bros(batch):
 
 @torch.no_grad()
 def adapt_input_layoutlm(batch):
-    # B N 4 2
-    boxes = batch["boxes"] * 1.0
-
-    # Normalize
-    boxes[..., 0] = boxes[..., 0] * 1000 / batch['image_width']
-    boxes[..., 1] = boxes[..., 1] * 1000 / batch['image_height']
+    boxes = batch["boxes"]
 
     # Convert to xyxy
     maxs = boxes.max(dim=-2).values
     mins = boxes.min(dim=-2).values
+
     # X min Y min X max Y max
     boxes = torch.cat([mins, maxs], dim=-1)
-    boxes = torch.round(boxes).type(torch.long)
+    boxes = torch.round(boxes * 1000).type(torch.long)
+    boxes = torch.clamp(boxes, 0, 1000)
     return dict(
         bbox=boxes,
         input_ids=batch["texts"],
-        attention_mask=batch.get("attention_masks", None),
+        # attention_mask=batch.get("attention_masks", None),
     )
 
 
-@dataclass
+@ dataclass
 class KieOutput(BatchNamespace):
     class_logits: Tensor
     relation_logits: Tensor
     loss: Optional[Tensor] = None
 
-    @classmethod
+    @ classmethod
     def excluded(cls):
         return ["loss"]
 
@@ -62,7 +59,7 @@ class KieOutput(BatchNamespace):
         class_probs = torch.softmax(self.class_logits, dim=-1)
         self.class_scores, self.classes = torch.max(class_probs, dim=-1)
 
-    @property
+    @ property
     def relations(self):
         relation_probs = torch.softmax(self.relation_logits, dim=-1)
         relation_scores = relation_probs[..., 1] - relation_probs[..., 0]
@@ -73,7 +70,7 @@ class KieOutput(BatchNamespace):
         else:
             return self.nms(relation_scores)
 
-    @torch.no_grad()
+    @ torch.no_grad()
     def nms(self, scores, threshold=0):
         r, c = scores.shape
         keeps = torch.zeros_like(scores)
@@ -189,9 +186,12 @@ class KieLoss(nn.Module):
         # n_mask = (gt_classes != 0)
         # n_mask = n_mask[:, :, None] & n_mask[:, None, :]
         n_mask = gt_relations == 0
-        r_loss_p = self.r_loss_p(pr_relation_logits[p_mask], gt_relations[p_mask])
-        r_loss_n = self.r_loss_n(pr_relation_logits[n_mask], gt_relations[n_mask])
-        loss = r_loss_p + r_loss_n + c_loss * 0.1 # because classification converge very fast
+        r_loss_p = self.r_loss_p(
+            pr_relation_logits[p_mask], gt_relations[p_mask])
+        r_loss_n = self.r_loss_n(
+            pr_relation_logits[n_mask], gt_relations[n_mask])
+        # because classification converge very fast
+        loss = r_loss_p + r_loss_n + c_loss * 0.1
 
         return loss
 
@@ -271,8 +271,10 @@ class KieModel(nn.Module):
             class_logits=class_logits, relation_logits=relation_logits, loss=loss
         )
 
+
 def Tokenizer(config: ModelConfig):
     return AutoTokenizer.from_pretrained(config.word_embeddings)
+
 
 if __name__ == "__main__":
     from icecream import install
