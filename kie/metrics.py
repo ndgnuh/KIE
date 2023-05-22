@@ -46,9 +46,13 @@ class Metric(Generic[T]):
 @dataclass
 class Statistics(list):
     reduce_fn: Callable
+    remove_none: bool = True
 
     def get(self):
-        return self.reduce_fn(self)
+        if self.remove_none:
+            return self.reduce_fn([v for v in self if v is not None])
+        else:
+            return self.reduce_fn(self)
 
 
 def get_tensor_f1(pr, gt):
@@ -89,7 +93,11 @@ def get_e2e_f1_per_class(pr_list, gt_list, classes):
         tp = len(tps_c)
         fp = len(fps_c)
         fn = len(fns_c)
-        f1 = (2 * tp) / (2 * tp + fn + fp + 1e-6)
+        # There is no pairs
+        if tp == 0 and fp == 0 and fn == 0:
+            f1s[c] = None
+        else:
+            f1 = (2 * tp) / (2 * tp + fn + fp + 1e-6)
         f1s[c] = f1
 
     return f1s
