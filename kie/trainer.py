@@ -80,8 +80,8 @@ class Trainer:
         transform_train = A.Pipeline(
             [
                 A.WithProbs(A.RandomPermutation(copy=False), 0.3),
-                A.WithProbs(A.RandomRotate(
-                    min_degree=-10, max_degree=10), 0.3),
+                A.WithProbs(A.BetterRandomRotate(-10, 10, 4), 0.3),
+                A.WithProbs(A.RandomTranslate(0.01, 0.05), 0.3),
                 self.processor.encode,
             ]
         )

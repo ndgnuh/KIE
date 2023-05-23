@@ -30,6 +30,25 @@ def center_transform_polygon(polygon: list[list[int, int]], transformation):
     return rotated_polygon
 
 
+def random_translate(sample: Sample, min_pct: float, max_pct: float):
+    pct = random.uniform(min_pct, max_pct)
+    w = int(pct * sample.image_width)
+    h = int(pct * sample.image_height)
+
+    pct = random.uniform(min_pct, max_pct)
+    boxes = np.array(sample.boxes)
+    num_boxes = len(sample.boxes)
+    x = np.random.randint(-w, w, (num_boxes, 4))
+    y = np.random.randint(-h, h, (num_boxes, 4))
+
+    boxes[..., 0] = boxes[..., 0] + x
+    boxes[..., 1] = boxes[..., 1] + y
+
+    sample = sample.dict()
+    sample['boxes'] = boxes.tolist()
+    return Sample(**sample)
+
+
 def random_rotate(sample: Sample, min_degree: float, max_degree: float):
     deg = random.uniform(min_degree, max_degree)
     rad = np.deg2rad(deg)
@@ -123,7 +142,7 @@ def _with_probs(p: float):
     """
 
     def wrapper(f):
-        @wraps(f)
+        @ wraps(f)
         def wrapped(sample):
             if random.uniform(0, 1) <= p:
                 return f(sample)

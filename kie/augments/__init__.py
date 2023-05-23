@@ -40,3 +40,4 @@ RandomRotate = wrap_transform(F.random_rotate, "min_degree", "max_degree")
 BetterRandomRotate = wrap_transform(
     F.better_random_rotate, "min_degree", "max_degree", "max_iterations"
 )
+RandomTranslate = wrap_transform(F.random_translate, "min_pct", "max_pct")
