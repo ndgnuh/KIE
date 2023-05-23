@@ -173,7 +173,7 @@ class Trainer:
                 self.validate()
 
         # Save one last time
-        self.save_model()
+        self.save_model(self.model_config.latest_weight_path)
 
     @ torch.no_grad()
     def validate(self, loader=None):
